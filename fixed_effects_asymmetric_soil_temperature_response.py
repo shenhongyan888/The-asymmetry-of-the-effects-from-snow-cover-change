@@ -14,7 +14,9 @@ Workflow:
 2. Recalculate model coefficients for each ecosystem:
    - snow_pos_lag1
    - snow_neg_lag1
-   - beta_pos, beta_neg, p values, and rho_snow
+   - t2m
+   - ssr
+   - beta_pos, beta_neg, control-variable coefficients, p values, and rho_snow
 
 3. Calculate binned soil temperature responses under equivalent snow-depth changes:
    - snow addition
@@ -38,6 +40,7 @@ Workflow:
 
 Main model:
     delta_ts = beta_pos * snow_pos_lag1 + beta_neg * snow_neg_lag1
+               + theta_t2m * t2m + theta_ssr * ssr
                + fixed effects + error
 
 Asymmetry metric:
@@ -46,6 +49,7 @@ Asymmetry metric:
 Note:
 - This script starts from an existing pre-filtered panel dataset.
 - It does not resample the original TIFF files.
+- The input panel must contain t2m and ssr columns.
 - All paths and output names are written in English.
 """
 
@@ -105,6 +109,9 @@ OUTPUT_PREFIX = {
 # 2) Model settings
 # =========================================================
 RECOMPUTE_MODEL = True
+
+# Control variables included in the fixed-effects model
+CONTROL_VARS = ["t2m", "ssr"]
 
 # Fixed effects used in the model.
 # Recommended setting: pixel_id + year + month.
@@ -231,12 +238,16 @@ def ensure_needed_columns(panel):
         "delta_snow_lag1",
         "delta_ts",
         "ecosystem"
-    ]
+    ] + CONTROL_VARS
 
     missing_cols = [c for c in needed_cols if c not in panel.columns]
 
     if missing_cols:
-        raise RuntimeError(f"The panel dataset is missing required columns: {missing_cols}")
+        raise RuntimeError(
+            "The panel dataset is missing required columns: "
+            f"{missing_cols}\n"
+            "Please make sure the input panel contains t2m and ssr."
+        )
 
     return panel
 
@@ -362,6 +373,9 @@ def prepare_panel_for_analysis(panel):
             0.0
         )
 
+    for var in CONTROL_VARS:
+        panel[var] = pd.to_numeric(panel[var], errors="coerce")
+
     panel["group_name"] = panel["ecosystem"].astype(str)
 
     panel = panel.dropna(
@@ -372,7 +386,7 @@ def prepare_panel_for_analysis(panel):
             "snow_pos_lag1",
             "snow_neg_lag1",
             "ecosystem"
-        ]
+        ] + CONTROL_VARS
     )
 
     panel = panel[panel["sign_group"].isin(["increase", "decrease"])].copy()
@@ -471,14 +485,21 @@ def fit_ols_on_residuals(y, X):
 def fit_model_for_group(df_group, group_name):
     """
     Model:
-    delta_ts = beta_pos * snow_pos_lag1 + beta_neg * snow_neg_lag1 + fixed effects + error
+    delta_ts = beta_pos * snow_pos_lag1
+             + beta_neg * snow_neg_lag1
+             + theta_t2m * t2m
+             + theta_ssr * ssr
+             + fixed effects
+             + error
 
-    beta_pos represents the marginal effect of snow addition.
-    beta_neg represents the marginal effect of snow reduction.
+    beta_pos represents the marginal effect of snow addition after controlling for t2m, ssr,
+    and multidimensional fixed effects.
+    beta_neg represents the marginal effect of snow reduction after controlling for t2m, ssr,
+    and multidimensional fixed effects.
     """
     df = df_group.copy()
 
-    model_cols = ["delta_ts", "snow_pos_lag1", "snow_neg_lag1"]
+    model_cols = ["delta_ts", "snow_pos_lag1", "snow_neg_lag1"] + CONTROL_VARS
     fe_cols = [c for c in FIXED_EFFECTS if c in df.columns]
 
     df = df.dropna(subset=model_cols + fe_cols).copy()
@@ -487,7 +508,7 @@ def fit_model_for_group(df_group, group_name):
         print(f"[SKIP MODEL] {group_name}: n={len(df)} < {MIN_N_MODEL}")
         return []
 
-    print(f"[MODEL] {group_name}: n={len(df)}, fixed effects={fe_cols}")
+    print(f"[MODEL] {group_name}: n={len(df)}, controls={CONTROL_VARS}, fixed effects={fe_cols}")
 
     resid_df = residualize_by_fixed_effects(
         df=df,
@@ -498,15 +519,14 @@ def fit_model_for_group(df_group, group_name):
     )
 
     y = resid_df["delta_ts"].values
-    X = resid_df[["snow_pos_lag1", "snow_neg_lag1"]].values
+    x_vars = ["snow_pos_lag1", "snow_neg_lag1"] + CONTROL_VARS
+    X = resid_df[x_vars].values
 
     fit = fit_ols_on_residuals(y, X)
 
-    variables = ["snow_pos_lag1", "snow_neg_lag1"]
-
     rows = []
 
-    for j, var in enumerate(variables):
+    for j, var in enumerate(x_vars):
         rows.append({
             "group_name": group_name,
             "group_label": GROUP_LABELS_EN.get(group_name, group_name),
@@ -518,6 +538,7 @@ def fit_model_for_group(df_group, group_name):
             "n": int(fit["n"]),
             "df_resid": int(fit["df_resid"]),
             "fixed_effects": "+".join(fe_cols),
+            "controls": "+".join(CONTROL_VARS),
             "snow_unit": "cm",
             "negative_term": "magnitude" if USE_NEGATIVE_MAGNITUDE else "signed_negative"
         })
@@ -1260,6 +1281,8 @@ def main():
     plot_panel = prepare_panel_for_analysis(panel)
 
     print(f"[INFO] Valid rows for analysis: {len(plot_panel):,}")
+    print(f"[INFO] Control variables used in the model: {CONTROL_VARS}")
+    print(f"[INFO] Fixed effects used in the model: {FIXED_EFFECTS}")
 
     if RECOMPUTE_MODEL:
         coef_df = recompute_model_coefficients(plot_panel)
