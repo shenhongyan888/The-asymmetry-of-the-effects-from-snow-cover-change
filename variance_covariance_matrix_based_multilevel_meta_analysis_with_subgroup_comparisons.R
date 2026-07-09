@@ -51,7 +51,7 @@ cat("  Convert continuous variables into grouped variables...\n")
 d2$StandAge_year <- as.numeric(as.character(d2$StandAge_year))
 d2$Soil_depth <- as.numeric(as.character(d2$Soil_depth))
 
-# Study-duration grouping: use manual grouping to ensure accuracy
+# Experimental-duration grouping: use manual grouping to ensure accuracy
 d2$StandAge_group <- NA
 d2$StandAge_group[d2$StandAge_year >= 0 & d2$StandAge_year <= 1] <- "1"
 d2$StandAge_group[d2$StandAge_year > 1 & d2$StandAge_year <= 5] <- "2-5"
@@ -82,7 +82,7 @@ cat("✓ Data import and preprocessing completed\n")
 cat("  Total data size:", nrow(d2), "rows\n")
 cat("  Number of traits:", length(unique(d2$Trait)), "traits\n")
 cat("  Grouping types: ecosystem(", length(eco_types), "), season(", length(seasons), "), frozen soil(", length(frozen_types), ")\n")
-cat("           study duration(", length(stand_age_groups), "), soil depth(", length(soil_depth_groups), ")\n\n")
+cat("           Experimental duration(", length(stand_age_groups), "), soil depth(", length(soil_depth_groups), ")\n\n")
 
 # 3. Multiple-comparison function ------------------------------------------------------------
 cat("Step 3: Define analysis functions...\n")
