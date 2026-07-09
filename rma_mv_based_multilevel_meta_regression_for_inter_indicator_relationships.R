@@ -319,13 +319,13 @@ for (i in seq_along(variables_list)) {
   }
 
   # Split the data
-  snow_add <- subset(d2, Treatment_1 == "Snow addition" & 
+  snow_add <- subset(d2, Treatment_1 == "Increased snowpack thickness" & 
                       !is.na(d2[[col_name]]) & !is.na(yi) & !is.na(V) & !is.na(vi))
-  snow_remove <- subset(d2, Treatment_1 == "Snow remove" & 
+  decreased_snowpack_thickness <- subset(d2, Treatment_1 == "Decreased snowpack thickness" & 
                          !is.na(d2[[col_name]]) & !is.na(yi) & !is.na(V) & !is.na(vi))
 
-  cat("Snow addition: ", nrow(snow_add), "observations\n")
-  cat("Snow remove: ", nrow(snow_remove), "observations\n")
+  cat("Increased snowpack thickness: ", nrow(snow_add), "observations\n")
+  cat("Decreased snowpack thickness: ", nrow(decreased_snowpack_thickness), "observations\n")
 
   # ============================
   # Fit models
@@ -335,9 +335,9 @@ for (i in seq_along(variables_list)) {
   model_add <- NULL
   model_remove <- NULL
 
-  # Fit the Snow addition model
+  # Fit the Increased snowpack thickness model
   if(nrow(snow_add) >= 3) {
-    cat("Fitting the Snow addition model...\n")
+    cat("Fitting the Increased snowpack thickness model...\n")
     model_add <- fit_simple_model(snow_add, col_name)
     if(!is.null(model_add)) {
       cat("Model summary:\n")
@@ -361,20 +361,20 @@ for (i in seq_along(variables_list)) {
       }
     }
   } else {
-    cat("Insufficient data for Snow addition (n < 3)\n")
+    cat("Insufficient data for Increased snowpack thickness (n < 3)\n")
   }
 
-  # Fit the Snow remove model
-  if(nrow(snow_remove) >= 3) {
-    cat("\nFitting the Snow remove model...\n")
-    model_remove <- fit_simple_model(snow_remove, col_name)
+  # Fit the Decreased snowpack thickness model
+  if(nrow(decreased_snowpack_thickness) >= 3) {
+    cat("\nFitting the Decreased snowpack thickness model...\n")
+    model_remove <- fit_simple_model(decreased_snowpack_thickness, col_name)
     if(!is.null(model_remove)) {
       cat("Model summary:\n")
       print(summary(model_remove))
 
       # Save the model
       saveRDS(model_remove, file.path(variable_output_path, 
-                                     paste0("model_snow_remove_", safe_name, ".rds")))
+                                     paste0("model_decreased_snowpack_thickness_", safe_name, ".rds")))
 
       # Save random-effect variance components
       if(length(model_remove$sigma2) > 0) {
@@ -390,7 +390,7 @@ for (i in seq_along(variables_list)) {
       }
     }
   } else {
-    cat("Insufficient data for Snow remove (n < 3)\n")
+    cat("Insufficient data for Decreased snowpack thickness (n < 3)\n")
   }
 
   # ============================
@@ -400,7 +400,7 @@ for (i in seq_along(variables_list)) {
 
   variable_results <- data.frame()
 
-  # Snow addition results
+  # Increased snowpack thickness results
   if(!is.null(model_add)) {
     # For the rma.mv model, coefficients are stored in the $b matrix and need to be indexed correctly
     beta_value <- model_add$b[2]
@@ -411,7 +411,7 @@ for (i in seq_along(variables_list)) {
 
     results_add <- data.frame(
       Variable = variable_name,
-      Treatment = "Snow addition",
+      Treatment = "Increased snowpack thickness",
       Beta = beta_value,
       SE = se_value,
       CI_lower = ci_lb,
@@ -431,7 +431,7 @@ for (i in seq_along(variables_list)) {
     regression_coefficients <- rbind(regression_coefficients, 
                                      data.frame(
                                        Variable = variable_name,
-                                       Treatment = "Snow addition",
+                                       Treatment = "Increased snowpack thickness",
                                        Beta = round(beta_value, 4),
                                        SE = round(se_value, 4),
                                        CI = paste0("[", round(ci_lb, 4), ", ", round(ci_ub, 4), "]"),
@@ -441,7 +441,7 @@ for (i in seq_along(variables_list)) {
                                      ))
   }
 
-  # Snow remove results
+  # Decreased snowpack thickness results
   if(!is.null(model_remove)) {
     beta_value <- model_remove$b[2]
     se_value <- model_remove$se[2]
@@ -451,7 +451,7 @@ for (i in seq_along(variables_list)) {
 
     results_remove <- data.frame(
       Variable = variable_name,
-      Treatment = "Snow remove",
+      Treatment = "Decreased snowpack thickness",
       Beta = beta_value,
       SE = se_value,
       CI_lower = ci_lb,
@@ -459,7 +459,7 @@ for (i in seq_along(variables_list)) {
       p_value = p_value,
       QM = model_remove$QM,
       QM_p = model_remove$QMp,
-      n_obs = nrow(snow_remove),
+      n_obs = nrow(decreased_snowpack_thickness),
       tau2 = ifelse(length(model_remove$sigma2) > 0, sum(model_remove$sigma2), NA),
       I2 = ifelse(!is.null(model_remove$I2), model_remove$I2, NA),
       stringsAsFactors = FALSE
@@ -471,12 +471,12 @@ for (i in seq_along(variables_list)) {
     regression_coefficients <- rbind(regression_coefficients, 
                                      data.frame(
                                        Variable = variable_name,
-                                       Treatment = "Snow remove",
+                                       Treatment = "Decreased snowpack thickness",
                                        Beta = round(beta_value, 4),
                                        SE = round(se_value, 4),
                                        CI = paste0("[", round(ci_lb, 4), ", ", round(ci_ub, 4), "]"),
                                        p_value = round(p_value, 4),
-                                       n = nrow(snow_remove),
+                                       n = nrow(decreased_snowpack_thickness),
                                        stringsAsFactors = FALSE
                                      ))
   }
@@ -516,10 +516,10 @@ for (i in seq_along(variables_list)) {
       # Set basic graphical parameters
       par_original <- par(no.readonly = TRUE)
 
-      # ===== Snow addition plot =====
+      # ===== Increased snowpack thickness plot =====
       if(!is.null(model_add) && nrow(snow_add) >= 3) {
         # Set TIF output
-        tif_file_add <- file.path(output_path_tif, paste0("Snow_addition_", safe_name, ".tif"))
+        tif_file_add <- file.path(output_path_tif, paste0("Increased_snowpack_thickness_", safe_name, ".tif"))
         tiff(tif_file_add, 
              width = img_width, 
              height = img_height, 
@@ -649,13 +649,13 @@ for (i in seq_along(variables_list)) {
              font = 2)
 
         dev.off()
-        cat("Snow addition plot saved successfully:", tif_file_add, "\n")
+        cat("Increased snowpack thickness plot saved successfully:", tif_file_add, "\n")
       }
 
-      # ===== Snow remove plot =====
-      if(!is.null(model_remove) && nrow(snow_remove) >= 3) {
+      # ===== Decreased snowpack thickness plot =====
+      if(!is.null(model_remove) && nrow(decreased_snowpack_thickness) >= 3) {
         # Set TIF output
-        tif_file_remove <- file.path(output_path_tif, paste0("Snow_remove_", safe_name, ".tif"))
+        tif_file_remove <- file.path(output_path_tif, paste0("Decreased_snowpack_thickness_", safe_name, ".tif"))
         tiff(tif_file_remove, 
              width = img_width, 
              height = img_height, 
@@ -674,9 +674,9 @@ for (i in seq_along(variables_list)) {
             lwd = 1.2)
 
         # Prepare data
-        x_data <- snow_remove[[col_name]]
-        y_data <- snow_remove$yi
-        vi_data <- snow_remove$vi
+        x_data <- decreased_snowpack_thickness[[col_name]]
+        y_data <- decreased_snowpack_thickness$yi
+        vi_data <- decreased_snowpack_thickness$vi
 
         # Calculate point sizes based on 1/V, ranging from 1 to 4
         if(length(vi_data) > 0 && all(!is.na(vi_data)) && all(vi_data > 0)) {
@@ -764,7 +764,7 @@ for (i in seq_along(variables_list)) {
         # Add statistics at the top of the plot
         beta_val <- round(model_remove$b[2], 3)
         p_val <- model_remove$pval[2]
-        n_val <- nrow(snow_remove)
+        n_val <- nrow(decreased_snowpack_thickness)
 
         # Format p-values
         if(p_val < 0.001) {
@@ -785,7 +785,7 @@ for (i in seq_along(variables_list)) {
              font = 2)
 
         dev.off()
-        cat("Snow remove plot saved successfully:", tif_file_remove, "\n")
+        cat("Decreased snowpack thickness plot saved successfully:", tif_file_remove, "\n")
       }
 
       # Restore original graphical parameters
@@ -916,8 +916,8 @@ if(nrow(all_results_summary) > 0) {
            y = expression("Regression coefficient (β): effect on SOC"),
            title = "Regression coefficients of each indicator affecting SOC (rma.mv model)",
            color = "Treatment") +
-      scale_color_manual(values = c("Snow addition" = "#FFC07F", 
-                                    "Snow remove" = "#8FC4DE")) +
+      scale_color_manual(values = c("Increased snowpack thickness" = "#FFC07F", 
+                                    "Decreased snowpack thickness" = "#8FC4DE")) +
       my_theme
 
     ggsave("all_variables_beta_coefficients.png", p, 
@@ -931,8 +931,8 @@ if(nrow(all_results_summary) > 0) {
            y = expression("Total heterogeneity (τ"^2~")"),
            title = "Total heterogeneity variance of each model",
            fill = "Treatment") +
-      scale_fill_manual(values = c("Snow addition" = "#FFC07F", 
-                                   "Snow remove" = "#8FC4DE")) +
+      scale_fill_manual(values = c("Increased snowpack thickness" = "#FFC07F", 
+                                   "Decreased snowpack thickness" = "#8FC4DE")) +
       theme_minimal(base_family = "serif") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
 

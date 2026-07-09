@@ -125,7 +125,7 @@ run_comprehensive_meta_analysis <- function(data, trait_name, group_name = "over
     has_both_treatments <- length(treatment_levels) >= 2
     
     # 1. Single-treatment models
-    sa_data <- subset(data, `Treatment_1` == "Snow addition")
+    sa_data <- subset(data, `Treatment_1` == "Increased snowpack thickness")
     if(nrow(sa_data) >= 3) {
       suppressWarnings({
         results$sa <- metafor::rma.mv(yi, V, data = sa_data, 
@@ -133,7 +133,7 @@ run_comprehensive_meta_analysis <- function(data, trait_name, group_name = "over
       })
     }
     
-    sr_data <- subset(data, `Treatment_1` == "Snow remove")
+    sr_data <- subset(data, `Treatment_1` == "Decreased snowpack thickness")
     if(nrow(sr_data) >= 3) {
       suppressWarnings({
         results$sr <- metafor::rma.mv(yi, V, data = sr_data, 
@@ -492,26 +492,26 @@ for(trait in names(all_results)) {
   
   overall <- all_results[[trait]]$overall
   
-  # Snow Addition model
+  # Increased snowpack thickness model
   if(!is.null(overall$sa)) {
-    # Get the data actually used for the Snow Addition analysis
-    sa_data <- subset(d_current, `Treatment_1` == "Snow addition")
-    sa_stats <- get_analysis_stats(sa_data, trait, "Snow Addition")
+    # Get the data actually used for the Increased snowpack thickness analysis
+    sa_data <- subset(d_current, `Treatment_1` == "Increased snowpack thickness")
+    sa_stats <- get_analysis_stats(sa_data, trait, "Increased snowpack thickness")
     
     # Modification: Now the third argument, sa_stats, can be passed correctly
-    basic_summary_list[[paste0(trait, "_SnowAddition")]] <- extract_model_summary(
-      overall$sa, "Snow Addition", sa_stats)
+    basic_summary_list[[paste0(trait, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+      overall$sa, "Increased snowpack thickness", sa_stats)
   }
   
-  # Snow Remove model
+  # Decreased snowpack thickness model
   if(!is.null(overall$sr)) {
-    # Get the data actually used for the Snow Remove analysis
-    sr_data <- subset(d_current, `Treatment_1` == "Snow remove")
-    sr_stats <- get_analysis_stats(sr_data, trait, "Snow Remove")
+    # Get the data actually used for the Decreased snowpack thickness analysis
+    sr_data <- subset(d_current, `Treatment_1` == "Decreased snowpack thickness")
+    sr_stats <- get_analysis_stats(sr_data, trait, "Decreased snowpack thickness")
     
     # Modification: Now the third argument, sr_stats, can be passed correctly
-    basic_summary_list[[paste0(trait, "_SnowRemove")]] <- extract_model_summary(
-      overall$sr, "Snow Remove", sr_stats)
+    basic_summary_list[[paste0(trait, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+      overall$sr, "Decreased snowpack thickness", sr_stats)
   }
   
   # Treatment model(use all data)
@@ -1327,18 +1327,18 @@ for(trait in names(all_results)) {
       
       # Extract basic model information for this ecosystem
       if(!is.null(group_results$sa)) {
-        sa_eco_data <- subset(eco_data, `Treatment_1` == "Snow addition")
-        sa_stats <- get_analysis_stats(sa_eco_data, trait, "Snow Addition", list(type = "Ecosystem", value = eco))
+        sa_eco_data <- subset(eco_data, `Treatment_1` == "Increased snowpack thickness")
+        sa_stats <- get_analysis_stats(sa_eco_data, trait, "Increased snowpack thickness", list(type = "Ecosystem", value = eco))
         
-        eco_basic_summary_list[[paste0(trait, "_", eco, "_SnowAddition")]] <- extract_model_summary(
-          group_results$sa, paste0(eco, " - Snow Addition"), sa_stats)
+        eco_basic_summary_list[[paste0(trait, "_", eco, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sa, paste0(eco, " - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
-        sr_eco_data <- subset(eco_data, `Treatment_1` == "Snow remove")
-        sr_stats <- get_analysis_stats(sr_eco_data, trait, "Snow Remove", list(type = "Ecosystem", value = eco))
+        sr_eco_data <- subset(eco_data, `Treatment_1` == "Decreased snowpack thickness")
+        sr_stats <- get_analysis_stats(sr_eco_data, trait, "Decreased snowpack thickness", list(type = "Ecosystem", value = eco))
         
-        eco_basic_summary_list[[paste0(trait, "_", eco, "_SnowRemove")]] <- extract_model_summary(
-          group_results$sr, paste0(eco, " - Snow Remove"), sr_stats)
+        eco_basic_summary_list[[paste0(trait, "_", eco, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sr, paste0(eco, " - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
         treatment_stats <- get_analysis_stats(eco_data, trait, "Treatment Comparison", list(type = "Ecosystem", value = eco))
@@ -1386,18 +1386,18 @@ for(trait in names(all_results)) {
       
       # Extract basic model information for this season
       if(!is.null(group_results$sa)) {
-        sa_season_data <- subset(season_data, `Treatment_1` == "Snow addition")
-        sa_stats <- get_analysis_stats(sa_season_data, trait, "Snow Addition", list(type = "Season", value = season))
+        sa_season_data <- subset(season_data, `Treatment_1` == "Increased snowpack thickness")
+        sa_stats <- get_analysis_stats(sa_season_data, trait, "Increased snowpack thickness", list(type = "Season", value = season))
         
-        season_basic_summary_list[[paste0(trait, "_", season, "_SnowAddition")]] <- extract_model_summary(
-          group_results$sa, paste0(season, " - Snow Addition"), sa_stats)
+        season_basic_summary_list[[paste0(trait, "_", season, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sa, paste0(season, " - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
-        sr_season_data <- subset(season_data, `Treatment_1` == "Snow remove")
-        sr_stats <- get_analysis_stats(sr_season_data, trait, "Snow Remove", list(type = "Season", value = season))
+        sr_season_data <- subset(season_data, `Treatment_1` == "Decreased snowpack thickness")
+        sr_stats <- get_analysis_stats(sr_season_data, trait, "Decreased snowpack thickness", list(type = "Season", value = season))
         
-        season_basic_summary_list[[paste0(trait, "_", season, "_SnowRemove")]] <- extract_model_summary(
-          group_results$sr, paste0(season, " - Snow Remove"), sr_stats)
+        season_basic_summary_list[[paste0(trait, "_", season, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sr, paste0(season, " - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
         treatment_stats <- get_analysis_stats(season_data, trait, "Treatment Comparison", list(type = "Season", value = season))
@@ -1449,18 +1449,18 @@ for(trait in names(all_results)) {
       
       # Extract basic model information for this frozen-soil type
       if(!is.null(group_results$sa)) {
-        sa_frozen_data <- subset(frozen_data, `Treatment_1` == "Snow addition")
-        sa_stats <- get_analysis_stats(sa_frozen_data, trait, "Snow Addition", list(type = "Frozen_Soil", value = frozen_name))
+        sa_frozen_data <- subset(frozen_data, `Treatment_1` == "Increased snowpack thickness")
+        sa_stats <- get_analysis_stats(sa_frozen_data, trait, "Increased snowpack thickness", list(type = "Frozen_Soil", value = frozen_name))
         
-        frozen_basic_summary_list[[paste0(trait, "_", frozen, "_SnowAddition")]] <- extract_model_summary(
-          group_results$sa, paste0(frozen_name, " - Snow Addition"), sa_stats)
+        frozen_basic_summary_list[[paste0(trait, "_", frozen, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sa, paste0(frozen_name, " - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
-        sr_frozen_data <- subset(frozen_data, `Treatment_1` == "Snow remove")
-        sr_stats <- get_analysis_stats(sr_frozen_data, trait, "Snow Remove", list(type = "Frozen_Soil", value = frozen_name))
+        sr_frozen_data <- subset(frozen_data, `Treatment_1` == "Decreased snowpack thickness")
+        sr_stats <- get_analysis_stats(sr_frozen_data, trait, "Decreased snowpack thickness", list(type = "Frozen_Soil", value = frozen_name))
         
-        frozen_basic_summary_list[[paste0(trait, "_", frozen, "_SnowRemove")]] <- extract_model_summary(
-          group_results$sr, paste0(frozen_name, " - Snow Remove"), sr_stats)
+        frozen_basic_summary_list[[paste0(trait, "_", frozen, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sr, paste0(frozen_name, " - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
         treatment_stats <- get_analysis_stats(frozen_data, trait, "Treatment Comparison", list(type = "Frozen_Soil", value = frozen_name))
@@ -1509,18 +1509,18 @@ for(trait in names(all_results)) {
       group_results <- all_results[[trait]]$stand_age_groups[[age_group]]
       
       if(!is.null(group_results$sa)) {
-        sa_age_data <- subset(age_data, `Treatment_1` == "Snow addition")
-        sa_stats <- get_analysis_stats(sa_age_data, trait, "Snow Addition", list(type = "StandAge", value = paste0(age_group, " years")))
+        sa_age_data <- subset(age_data, `Treatment_1` == "Increased snowpack thickness")
+        sa_stats <- get_analysis_stats(sa_age_data, trait, "Increased snowpack thickness", list(type = "StandAge", value = paste0(age_group, " years")))
         
-        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_SnowAddition")]] <- extract_model_summary(
-          group_results$sa, paste0(age_group, " years - Snow Addition"), sa_stats)
+        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sa, paste0(age_group, " years - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
-        sr_age_data <- subset(age_data, `Treatment_1` == "Snow remove")
-        sr_stats <- get_analysis_stats(sr_age_data, trait, "Snow Remove", list(type = "StandAge", value = paste0(age_group, " years")))
+        sr_age_data <- subset(age_data, `Treatment_1` == "Decreased snowpack thickness")
+        sr_stats <- get_analysis_stats(sr_age_data, trait, "Decreased snowpack thickness", list(type = "StandAge", value = paste0(age_group, " years")))
         
-        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_SnowRemove")]] <- extract_model_summary(
-          group_results$sr, paste0(age_group, " years - Snow Remove"), sr_stats)
+        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sr, paste0(age_group, " years - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
         treatment_stats <- get_analysis_stats(age_data, trait, "Treatment Comparison", list(type = "StandAge", value = paste0(age_group, " years")))
@@ -1567,18 +1567,18 @@ for(trait in names(all_results)) {
       group_results <- all_results[[trait]]$soil_depth_groups[[depth_group]]
       
       if(!is.null(group_results$sa)) {
-        sa_depth_data <- subset(depth_data, `Treatment_1` == "Snow addition")
-        sa_stats <- get_analysis_stats(sa_depth_data, trait, "Snow Addition", list(type = "SoilDepth", value = paste0(depth_group, " cm")))
+        sa_depth_data <- subset(depth_data, `Treatment_1` == "Increased snowpack thickness")
+        sa_stats <- get_analysis_stats(sa_depth_data, trait, "Increased snowpack thickness", list(type = "SoilDepth", value = paste0(depth_group, " cm")))
         
-        soil_depth_basic_summary_list[[paste0(trait, "_", depth_group, "_SnowAddition")]] <- extract_model_summary(
-          group_results$sa, paste0(depth_group, " cm - Snow Addition"), sa_stats)
+        soil_depth_basic_summary_list[[paste0(trait, "_", depth_group, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sa, paste0(depth_group, " cm - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
-        sr_depth_data <- subset(depth_data, `Treatment_1` == "Snow remove")
-        sr_stats <- get_analysis_stats(sr_depth_data, trait, "Snow Remove", list(type = "SoilDepth", value = paste0(depth_group, " cm")))
+        sr_depth_data <- subset(depth_data, `Treatment_1` == "Decreased snowpack thickness")
+        sr_stats <- get_analysis_stats(sr_depth_data, trait, "Decreased snowpack thickness", list(type = "SoilDepth", value = paste0(depth_group, " cm")))
         
-        soil_depth_basic_summary_list[[paste0(trait, "_", depth_group, "_SnowRemove")]] <- extract_model_summary(
-          group_results$sr, paste0(depth_group, " cm - Snow Remove"), sr_stats)
+        soil_depth_basic_summary_list[[paste0(trait, "_", depth_group, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+          group_results$sr, paste0(depth_group, " cm - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
         treatment_stats <- get_analysis_stats(depth_data, trait, "Treatment Comparison", list(type = "SoilDepth", value = paste0(depth_group, " cm")))
@@ -1663,8 +1663,8 @@ for(trait in names(all_results)) {
   
   stats_list[[trait]] <- data.frame(
     Trait = trait,
-    SnowAddition = ifelse(!is.null(all_results[[trait]]$overall$sa), TRUE, FALSE),
-    SnowRemove = ifelse(!is.null(all_results[[trait]]$overall$sr), TRUE, FALSE),
+    IncreasedSnowpackThickness = ifelse(!is.null(all_results[[trait]]$overall$sa), TRUE, FALSE),
+    DecreasedSnowpackThickness = ifelse(!is.null(all_results[[trait]]$overall$sr), TRUE, FALSE),
     Treatment_Model = ifelse(!is.null(all_results[[trait]]$overall$treatment_model), TRUE, FALSE),
     Treatment_NoIntercept = ifelse(!is.null(all_results[[trait]]$overall$treatment_model_nointercept), TRUE, FALSE),
     Ecosystem_Interaction = ifelse(!is.null(all_results[[trait]]$overall$eco_interaction), TRUE, FALSE),
@@ -1727,12 +1727,12 @@ for(trait in names(all_results)) {
   }
   
   if(!is.null(overall$sa)) {
-    cat("  Snow addition effect:", round(overall$sa$beta[1], 4), 
+    cat("  Increased snowpack thickness effect:", round(overall$sa$beta[1], 4), 
         "[", round(overall$sa$ci.lb, 4), ",", round(overall$sa$ci.ub, 4), "]\n")
   }
   
   if(!is.null(overall$sr)) {
-    cat("  Snow removal effect:", round(overall$sr$beta[1], 4), 
+    cat("  Decreased snowpack thickness effect:", round(overall$sr$beta[1], 4), 
         "[", round(overall$sr$ci.lb, 4), ",", round(overall$sr$ci.ub, 4), "]\n")
   }
   cat("\n")
