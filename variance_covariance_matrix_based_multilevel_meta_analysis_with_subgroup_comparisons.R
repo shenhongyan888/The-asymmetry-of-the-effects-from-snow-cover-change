@@ -36,53 +36,61 @@ clean_trait_name <- function(trait) {
 # Define grouping variables
 eco_types <- c("Forest", "Wetland", "Grassland", "Tundra")
 seasons <- c("Annual average", "Freeze", "Freeze thawing", "Growing season")
-frozen_types <- c("P", "NP")
+frozen_soil_type_groups <- c("P", "NP")
 
-# Updated study-duration grouping: change 0.5-1 years to 1 year
-stand_age_groups <- c("1", "2-5", "6-10", "11-15", "16-25")
+# Updated Experimental duration grouping: change 0.5-1 years to 1 year
+experimental_duration_groups <- c("1", "2-5", "6-10", "11-15", "16-25", ">25")
 
-# Soil-depth grouping  
-soil_depth_groups <- c("0-10", "11-30", "31-60", "61-100")
+# Soil depth grouping  
+soil_depth_groups <- c("0-10", "11-30", "31-60", "61-100", ">100")
 
 # New: convert continuous variables into grouped variables
 cat("  Convert continuous variables into grouped variables...\n")
 
 # Safe data-type conversion
-d2$StandAge_year <- as.numeric(as.character(d2$StandAge_year))
+if(!"Experimental_Duration" %in% names(d2)) {
+  stop("Column 'Experimental_Duration' was not found in the input data. Please rename the experimental duration column to Experimental_Duration.")
+}
+if(!"Soil_depth" %in% names(d2)) {
+  stop("Column 'Soil_depth' was not found in the input data.")
+}
+
+d2$Experimental_Duration <- as.numeric(as.character(d2$Experimental_Duration))
 d2$Soil_depth <- as.numeric(as.character(d2$Soil_depth))
 
-# Experimental-duration grouping: use manual grouping to ensure accuracy
-d2$StandAge_group <- NA
-d2$StandAge_group[d2$StandAge_year >= 0 & d2$StandAge_year <= 1] <- "1"
-d2$StandAge_group[d2$StandAge_year > 1 & d2$StandAge_year <= 5] <- "2-5"
-d2$StandAge_group[d2$StandAge_year > 5 & d2$StandAge_year <= 10] <- "6-10"
-d2$StandAge_group[d2$StandAge_year > 10 & d2$StandAge_year <= 15] <- "11-15"
-d2$StandAge_group[d2$StandAge_year > 15 & d2$StandAge_year <= 25] <- "16-25"
-d2$StandAge_group[d2$StandAge_year > 25] <- ">25"
+# Experimental duration grouping: use manual grouping to ensure accuracy
+d2$Experimental_Duration_group <- NA
+d2$Experimental_Duration_group[d2$Experimental_Duration >= 0 & d2$Experimental_Duration <= 1] <- "1"
+d2$Experimental_Duration_group[d2$Experimental_Duration > 1 & d2$Experimental_Duration <= 5] <- "2-5"
+d2$Experimental_Duration_group[d2$Experimental_Duration > 5 & d2$Experimental_Duration <= 10] <- "6-10"
+d2$Experimental_Duration_group[d2$Experimental_Duration > 10 & d2$Experimental_Duration <= 15] <- "11-15"
+d2$Experimental_Duration_group[d2$Experimental_Duration > 15 & d2$Experimental_Duration <= 25] <- "16-25"
+d2$Experimental_Duration_group[d2$Experimental_Duration > 25] <- ">25"
 
-# Soil-depth grouping
-d2$SoilDepth_group <- cut(d2$Soil_depth,
-                          breaks = c(0, 10, 30, 60, 100, Inf),
-                          labels = c("0-10", "11-30", "31-60", "61-100", ">100"),
-                          include.lowest = TRUE,
-                          right = FALSE)
+# Soil depth grouping: use manual grouping to avoid boundary misclassification
+d2$SoilDepth_group <- NA
+d2$SoilDepth_group[d2$Soil_depth >= 0 & d2$Soil_depth <= 10] <- "0-10"
+d2$SoilDepth_group[d2$Soil_depth > 10 & d2$Soil_depth <= 30] <- "11-30"
+d2$SoilDepth_group[d2$Soil_depth > 30 & d2$Soil_depth <= 60] <- "31-60"
+d2$SoilDepth_group[d2$Soil_depth > 60 & d2$Soil_depth <= 100] <- "61-100"
+d2$SoilDepth_group[d2$Soil_depth > 100] <- ">100"
 
 # Check grouping distribution
-cat("  Study-duration group distribution:\n")
-print(table(d2$StandAge_group, useNA = "always"))
+cat("  Experimental duration group distribution:\n")
+print(table(d2$Experimental_Duration_group, useNA = "always"))
 
-cat("  Soil-depth group distribution:\n")
+cat("  Soil depth group distribution:\n")
 print(table(d2$SoilDepth_group, useNA = "always"))
 
 # Verify the sample size of the 1-year group
-one_year_count <- sum(d2$StandAge_group == "1", na.rm = TRUE)
+one_year_count <- sum(d2$Experimental_Duration_group == "1", na.rm = TRUE)
 cat("  Sample size of the 1-year group:", one_year_count, "\n")
 
 cat("✓ Data import and preprocessing completed\n")
 cat("  Total data size:", nrow(d2), "rows\n")
 cat("  Number of traits:", length(unique(d2$Trait)), "traits\n")
-cat("  Grouping types: ecosystem(", length(eco_types), "), season(", length(seasons), "), frozen soil(", length(frozen_types), ")\n")
-cat("           Experimental duration(", length(stand_age_groups), "), soil depth(", length(soil_depth_groups), ")\n\n")
+cat("  Grouping types: ecosystem(", length(eco_types), "), season(", length(seasons), "), frozen soil types(", length(frozen_soil_type_groups), ")\n")
+cat("           Experimental duration(", length(experimental_duration_groups), "), soil depth(", length(soil_depth_groups), ")\n\n")
 
 # 3. Multiple-comparison function ------------------------------------------------------------
 cat("Step 3: Define analysis functions...\n")
@@ -197,7 +205,7 @@ run_comprehensive_meta_analysis <- function(data, trait_name, group_name = "over
         }
       }
       
-      # Frozen-soil-type interaction
+      # Frozen soil types interaction
       frozen_levels <- unique(na.omit(data$Types_of_frozen_soil))
       frozen_levels <- frozen_levels[!is.na(frozen_levels) & frozen_levels != "NA"]
       if(length(frozen_levels) >= 2) {
@@ -270,7 +278,7 @@ close(pb)
 cat("✓ Meta-analysis completed\n")
 cat("  Successfully analyzed:", success_count, "/", length(traits), "traits\n\n")
 
-# 5.5 Group analysis: separate analyses by ecosystem, season, frozen-soil type, study duration, and soil depth
+# 5.5 Group analysis: separate analyses by ecosystem, season, frozen soil type, experimental duration, and soil depth
 cat("Step 5.5: Run group analysis...\n")
 
 # Revised group-analysis function: now supports all grouping types
@@ -353,38 +361,38 @@ for(i in seq_along(names(all_results))) {
     season_results <- run_group_analysis(d_current, trait, "Sampling_season", seasons)
     if(!is.null(season_results)) all_results[[trait]]$season_groups <- season_results
     
-    frozen_results <- run_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_types)
-    if(!is.null(frozen_results)) all_results[[trait]]$frozen_groups <- frozen_results
+    frozen_results <- run_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_soil_type_groups)
+    if(!is.null(frozen_results)) all_results[[trait]]$frozen_soil_type_groups <- frozen_results
     
-    stand_age_results <- run_group_analysis(d_current, trait, "StandAge_group", stand_age_groups)
-    if(!is.null(stand_age_results)) all_results[[trait]]$stand_age_groups <- stand_age_results
+    experimental_duration_results <- run_group_analysis(d_current, trait, "Experimental_Duration_group", experimental_duration_groups)
+    if(!is.null(experimental_duration_results)) all_results[[trait]]$experimental_duration_groups <- experimental_duration_results
     
     soil_depth_results <- run_group_analysis(d_current, trait, "SoilDepth_group", soil_depth_groups)
     if(!is.null(soil_depth_results)) all_results[[trait]]$soil_depth_groups <- soil_depth_results
     
     # New: Cross-group analysis
-    # Ecosystem x study duration
-    eco_stand_age_results <- run_cross_group_analysis(d_current, trait, "Eco_1", eco_types, "StandAge_group", stand_age_groups)
-    if(!is.null(eco_stand_age_results)) all_results[[trait]]$eco_stand_age_groups <- eco_stand_age_results
+    # Ecosystem x experimental duration
+    eco_experimental_duration_results <- run_cross_group_analysis(d_current, trait, "Eco_1", eco_types, "Experimental_Duration_group", experimental_duration_groups)
+    if(!is.null(eco_experimental_duration_results)) all_results[[trait]]$eco_experimental_duration_groups <- eco_experimental_duration_results
     
     # Ecosystem x soil depth
     eco_soil_depth_results <- run_cross_group_analysis(d_current, trait, "Eco_1", eco_types, "SoilDepth_group", soil_depth_groups)
     if(!is.null(eco_soil_depth_results)) all_results[[trait]]$eco_soil_depth_groups <- eco_soil_depth_results
     
-    # Season x study duration
-    season_stand_age_results <- run_cross_group_analysis(d_current, trait, "Sampling_season", seasons, "StandAge_group", stand_age_groups)
-    if(!is.null(season_stand_age_results)) all_results[[trait]]$season_stand_age_groups <- season_stand_age_results
+    # Season x experimental duration
+    season_experimental_duration_results <- run_cross_group_analysis(d_current, trait, "Sampling_season", seasons, "Experimental_Duration_group", experimental_duration_groups)
+    if(!is.null(season_experimental_duration_results)) all_results[[trait]]$season_experimental_duration_groups <- season_experimental_duration_results
     
     # Season x soil depth
     season_soil_depth_results <- run_cross_group_analysis(d_current, trait, "Sampling_season", seasons, "SoilDepth_group", soil_depth_groups)
     if(!is.null(season_soil_depth_results)) all_results[[trait]]$season_soil_depth_groups <- season_soil_depth_results
     
-    # Frozen soil x study duration
-    frozen_stand_age_results <- run_cross_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_types, "StandAge_group", stand_age_groups)
-    if(!is.null(frozen_stand_age_results)) all_results[[trait]]$frozen_stand_age_groups <- frozen_stand_age_results
+    # Frozen soil types x experimental duration
+    frozen_experimental_duration_results <- run_cross_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_soil_type_groups, "Experimental_Duration_group", experimental_duration_groups)
+    if(!is.null(frozen_experimental_duration_results)) all_results[[trait]]$frozen_experimental_duration_groups <- frozen_experimental_duration_results
     
     # Frozen soil x soil depth
-    frozen_soil_depth_results <- run_cross_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_types, "SoilDepth_group", soil_depth_groups)
+    frozen_soil_depth_results <- run_cross_group_analysis(d_current, trait, "Types_of_frozen_soil", frozen_soil_type_groups, "SoilDepth_group", soil_depth_groups)
     if(!is.null(frozen_soil_depth_results)) all_results[[trait]]$frozen_soil_depth_groups <- frozen_soil_depth_results
   }
 }
@@ -426,37 +434,37 @@ get_analysis_stats <- function(data, trait_name, analysis_type, group_info = NUL
 # ==================== Modified extract_model_summary function ====================
 # Modification: redefine the function and add the third argument, stats
 extract_model_summary <- function(model, model_name, stats = NULL) {
-    if(is.null(model)) return(NULL)
-    
-    treatment_p <- NA
-    if(model_name == "Treatment Model" && !is.null(model$pval) && length(model$pval) > 1) {
-        treatment_p <- model$pval[2]
-    }
-    
-    # Create the basic data frame
-    result <- data.frame(
-        Model = model_name,
-        k = model$k,
-        Estimate = ifelse(!is.null(model$beta), model$beta[1], NA),
-        SE = ifelse(!is.null(model$se), model$se[1], NA),
-        z = ifelse(!is.null(model$zval), model$zval[1], NA),
-        p_value = ifelse(!is.null(model$pval), model$pval[1], NA),
-        Treatment_p_value = treatment_p,
-        CI_lower = ifelse(!is.null(model$ci.lb), model$ci.lb[1], NA),
-        CI_upper = ifelse(!is.null(model$ci.ub), model$ci.ub[1], NA),
-        QE = ifelse(!is.null(model$QE), model$QE, NA),
-        QEp = ifelse(!is.null(model$QEp), model$QEp, NA),
-        stringsAsFactors = FALSE
-    )
-    
-    # Modification: add statistical information to the results
-    if(!is.null(stats)) {
-        result$Sample_Size <- ifelse(!is.null(stats$Study_id_Count), stats$Study_id_Count, NA)
-        result$Row_Count <- ifelse(!is.null(stats$Row_id_Count), stats$Row_id_Count, NA)
-        # Other statistical information fields can be added if needed
-    }
-    
-    return(result)
+  if(is.null(model)) return(NULL)
+  
+  treatment_p <- NA
+  if(model_name == "Treatment Model" && !is.null(model$pval) && length(model$pval) > 1) {
+    treatment_p <- model$pval[2]
+  }
+  
+  # Create the basic data frame
+  result <- data.frame(
+    Model = model_name,
+    k = model$k,
+    Estimate = ifelse(!is.null(model$beta), model$beta[1], NA),
+    SE = ifelse(!is.null(model$se), model$se[1], NA),
+    z = ifelse(!is.null(model$zval), model$zval[1], NA),
+    p_value = ifelse(!is.null(model$pval), model$pval[1], NA),
+    Treatment_p_value = treatment_p,
+    CI_lower = ifelse(!is.null(model$ci.lb), model$ci.lb[1], NA),
+    CI_upper = ifelse(!is.null(model$ci.ub), model$ci.ub[1], NA),
+    QE = ifelse(!is.null(model$QE), model$QE, NA),
+    QEp = ifelse(!is.null(model$QEp), model$QEp, NA),
+    stringsAsFactors = FALSE
+  )
+  
+  # Modification: add statistical information to the results
+  if(!is.null(stats)) {
+    result$Sample_Size <- ifelse(!is.null(stats$Study_id_Count), stats$Study_id_Count, NA)
+    result$Row_Count <- ifelse(!is.null(stats$Row_id_Count), stats$Row_id_Count, NA)
+    # Other statistical information fields can be added if needed
+  }
+  
+  return(result)
 }
 
 # Function: get a unique worksheet name
@@ -739,7 +747,7 @@ for(trait in names(all_results)) {
       if(!is.null(group_results$treatment_model_nointercept)) {
         # Get the actual data for the Treatment model in this group
         eco_treatment_stats <- get_analysis_stats(eco_data, trait, "Treatment No Intercept", 
-                                                 list(type = "Ecosystem", value = eco))
+                                                  list(type = "Ecosystem", value = eco))
         
         coefs <- coef(group_results$treatment_model_nointercept)
         ses <- sqrt(diag(vcov(group_results$treatment_model_nointercept)))
@@ -798,7 +806,7 @@ for(trait in names(all_results)) {
       if(!is.null(group_results$treatment_model_nointercept)) {
         # Get the actual data for the Treatment model in this group
         season_treatment_stats <- get_analysis_stats(season_data, trait, "Treatment No Intercept", 
-                                                    list(type = "Season", value = season))
+                                                     list(type = "Season", value = season))
         
         coefs <- coef(group_results$treatment_model_nointercept)
         ses <- sqrt(diag(vcov(group_results$treatment_model_nointercept)))
@@ -837,28 +845,28 @@ if(length(season_group_list) > 0) {
   cat("  Generated worksheet:", sheet_name, "\n")
 }
 
-# ==================== Worksheet7: Frozen_Soil_Group_Effect_Sizes ====================
-cat("  Generate frozen-soil-group effect sizes...\n")
+# ==================== Worksheet7: Frozen_Soil_Types_Group_Effect_Sizes ====================
+cat("  Generate frozen soil types group effect sizes...\n")
 frozen_group_list <- list()
 
 for(trait in names(all_results)) {
-  if(!is.null(all_results[[trait]]$frozen_groups)) {
+  if(!is.null(all_results[[trait]]$frozen_soil_type_groups)) {
     # Get the original data
     original_trait <- traits[clean_traits == trait][1]
     d_current <- subset(d2, Trait == original_trait)
     
-    for(frozen in names(all_results[[trait]]$frozen_groups)) {
-      # Get the actual data for this frozen-soil type
+    for(frozen in names(all_results[[trait]]$frozen_soil_type_groups)) {
+      # Get the actual data for this frozen soil type
       frozen_data <- d_current[d_current$Types_of_frozen_soil == frozen & !is.na(d_current$Types_of_frozen_soil), ]
       frozen_name <- ifelse(frozen == "P", "Permafrost", "Non_permafrost")
       
-      group_results <- all_results[[trait]]$frozen_groups[[frozen]]
+      group_results <- all_results[[trait]]$frozen_soil_type_groups[[frozen]]
       
-      # Extract Treatment effect sizes for this frozen-soil type
+      # Extract Treatment effect sizes for this frozen soil type
       if(!is.null(group_results$treatment_model_nointercept)) {
         # Get the actual data for the Treatment model in this group
         frozen_treatment_stats <- get_analysis_stats(frozen_data, trait, "Treatment No Intercept", 
-                                                    list(type = "Frozen_Soil", value = frozen_name))
+                                                     list(type = "Frozen_Soil_Types", value = frozen_name))
         
         coefs <- coef(group_results$treatment_model_nointercept)
         ses <- sqrt(diag(vcov(group_results$treatment_model_nointercept)))
@@ -868,7 +876,7 @@ for(trait in names(all_results)) {
         for(i in 1:length(coefs)) {
           frozen_group_list[[paste0(trait, "_", frozen, "_", i)]] <- data.frame(
             Trait = trait,
-            Frozen_Type = frozen_name,
+            Frozen_Soil_Type = frozen_name,
             Coefficient = names(coefs)[i],
             Estimate = coefs[i],
             SE = ses[i],
@@ -890,34 +898,34 @@ if(length(frozen_group_list) > 0) {
   frozen_group_df <- do.call(rbind, frozen_group_list)
   rownames(frozen_group_df) <- NULL
   
-  sheet_name <- get_unique_sheet_name("Frozen_Soil_Group_Effect_Sizes", used_sheet_names)
+  sheet_name <- get_unique_sheet_name("Frozen_Soil_Types_Group_Effect_Sizes", used_sheet_names)
   used_sheet_names <- c(used_sheet_names, sheet_name)
   addWorksheet(wb, sheet_name)
   writeData(wb, sheet_name, frozen_group_df)
   cat("  Generated worksheet:", sheet_name, "\n")
 }
 
-# ==================== Worksheet8: Study_Duration_Group_Effect_Sizes ====================
-cat("  Generate study-duration-group effect sizes...\n")
-stand_age_group_list <- list()
+# ==================== Worksheet8: Experimental_Duration_Group_Effect_Sizes ====================
+cat("  Generate experimental duration group effect sizes...\n")
+experimental_duration_group_list <- list()
 
 for(trait in names(all_results)) {
-  if(!is.null(all_results[[trait]]$stand_age_groups)) {
+  if(!is.null(all_results[[trait]]$experimental_duration_groups)) {
     # Get the original data
     original_trait <- traits[clean_traits == trait][1]
     d_current <- subset(d2, Trait == original_trait)
     
-    for(age_group in names(all_results[[trait]]$stand_age_groups)) {
+    for(age_group in names(all_results[[trait]]$experimental_duration_groups)) {
       # Get the actual data for this group
-      age_data <- d_current[d_current$StandAge_group == age_group & !is.na(d_current$StandAge_group), ]
+      age_data <- d_current[d_current$Experimental_Duration_group == age_group & !is.na(d_current$Experimental_Duration_group), ]
       
-      group_results <- all_results[[trait]]$stand_age_groups[[age_group]]
+      group_results <- all_results[[trait]]$experimental_duration_groups[[age_group]]
       
       # Extract Treatment effect sizes for this group
       if(!is.null(group_results$treatment_model_nointercept)) {
         # Get the actual data for the Treatment model in this group
         age_treatment_stats <- get_analysis_stats(age_data, trait, "Treatment No Intercept", 
-                                                 list(type = "StandAge", value = paste0(age_group, " years")))
+                                                  list(type = "Experimental_Duration", value = paste0(age_group, " years")))
         
         coefs <- coef(group_results$treatment_model_nointercept)
         ses <- sqrt(diag(vcov(group_results$treatment_model_nointercept)))
@@ -925,9 +933,9 @@ for(trait in names(all_results)) {
         ci_ub <- group_results$treatment_model_nointercept$ci.ub
         
         for(i in 1:length(coefs)) {
-          stand_age_group_list[[paste0(trait, "_", age_group, "_", i)]] <- data.frame(
+          experimental_duration_group_list[[paste0(trait, "_", age_group, "_", i)]] <- data.frame(
             Trait = trait,
-            StandAge_Group = paste0(age_group, " years"),
+            Experimental_Duration_Group = paste0(age_group, " years"),
             Coefficient = names(coefs)[i],
             Estimate = coefs[i],
             SE = ses[i],
@@ -945,19 +953,19 @@ for(trait in names(all_results)) {
   }
 }
 
-if(length(stand_age_group_list) > 0) {
-  stand_age_group_df <- do.call(rbind, stand_age_group_list)
-  rownames(stand_age_group_df) <- NULL
+if(length(experimental_duration_group_list) > 0) {
+  experimental_duration_group_df <- do.call(rbind, experimental_duration_group_list)
+  rownames(experimental_duration_group_df) <- NULL
   
-  sheet_name <- get_unique_sheet_name("Study_Duration_Group_Effect_Sizes", used_sheet_names)
+  sheet_name <- get_unique_sheet_name("Experimental_Duration_Group_Effect_Sizes", used_sheet_names)
   used_sheet_names <- c(used_sheet_names, sheet_name)
   addWorksheet(wb, sheet_name)
-  writeData(wb, sheet_name, stand_age_group_df)
+  writeData(wb, sheet_name, experimental_duration_group_df)
   cat("  Generated worksheet:", sheet_name, "\n")
 }
 
 # ==================== Worksheet9: Soil_Depth_Group_Effect_Sizes ====================
-cat("  Generate soil-depth-group effect sizes...\n")
+cat("  Generate soil depth-group effect sizes...\n")
 soil_depth_group_list <- list()
 
 for(trait in names(all_results)) {
@@ -976,7 +984,7 @@ for(trait in names(all_results)) {
       if(!is.null(group_results$treatment_model_nointercept)) {
         # Get the actual data for the Treatment model in this group
         depth_treatment_stats <- get_analysis_stats(depth_data, trait, "Treatment No Intercept", 
-                                                   list(type = "SoilDepth", value = paste0(depth_group, " cm")))
+                                                    list(type = "SoilDepth", value = paste0(depth_group, " cm")))
         
         coefs <- coef(group_results$treatment_model_nointercept)
         ses <- sqrt(diag(vcov(group_results$treatment_model_nointercept)))
@@ -1019,9 +1027,9 @@ if(length(soil_depth_group_list) > 0) {
 # Define grouping variables
 eco_types <- c("Forest", "Wetland", "Grassland", "Tundra")
 seasons <- c("Annual average", "Freeze", "Freeze thawing", "Growing season")
-frozen_types <- c("P", "NP")
-stand_age_groups <- c("1", "2-5", "6-10", "11-15", "15-25")
-soil_depth_groups <- c("0-10", "11-30", "31-60", "61-100")
+frozen_soil_type_groups <- c("P", "NP")
+experimental_duration_groups <- c("1", "2-5", "6-10", "11-15", "16-25", ">25")
+soil_depth_groups <- c("0-10", "11-30", "31-60", "61-100", ">100")
 # Define a function for extracting group-specific treatment differences with two levels
 extract_group_comparison <- function(trait, trait_results, d_current, group_type, 
                                      group_var, group_values, groups_list_name = NULL) {
@@ -1081,8 +1089,8 @@ extract_group_comparison <- function(trait, trait_results, d_current, group_type
             QM = group_interaction_model$QM,
             df1 = group_interaction_model$m,
             p_value = ifelse(length(group_interaction_model$pval) > 1, 
-                           group_interaction_model$pval[2], 
-                           group_interaction_model$pval[1]),
+                             group_interaction_model$pval[2], 
+                             group_interaction_model$pval[1]),
             k = group_interaction_model$k,
             Study_id_Count = group_stats$Study_id_Count,
             Row_id_Count = group_stats$Row_id_Count,
@@ -1107,10 +1115,10 @@ extract_group_comparison <- function(trait, trait_results, d_current, group_type
         group_data <- d_current[d_current$Eco_1 == group_val & !is.na(d_current$Eco_1), ]
       } else if(group_type == "Season") {
         group_data <- d_current[d_current$Sampling_season == group_val & !is.na(d_current$Sampling_season), ]
-      } else if(group_type == "Frozen_Soil") {
+      } else if(group_type == "Frozen_Soil_Types") {
         group_data <- d_current[d_current$Types_of_frozen_soil == group_val & !is.na(d_current$Types_of_frozen_soil), ]
-      } else if(group_type == "StandAge") {
-        group_data <- d_current[d_current$StandAge_group == group_val & !is.na(d_current$StandAge_group), ]
+      } else if(group_type == "Experimental_Duration") {
+        group_data <- d_current[d_current$Experimental_Duration_group == group_val & !is.na(d_current$Experimental_Duration_group), ]
       } else if(group_type == "SoilDepth") {
         group_data <- d_current[d_current$SoilDepth_group == group_val & !is.na(d_current$SoilDepth_group), ]
       } else {
@@ -1175,18 +1183,18 @@ group_configs <- list(
     values = soil_depth_groups
   ),
   list(
-    type = "Frozen_Soil", 
+    type = "Frozen_Soil_Types", 
     var = "Types_of_frozen_soil", 
-    name = "Frozen_Soil_Type_Group_Comparison_Summary",
-    groups_list = "frozen_groups",
-    values = frozen_types
+    name = "Frozen_Soil_Types_Group_Comparison_Summary",
+    groups_list = "frozen_soil_type_groups",
+    values = frozen_soil_type_groups
   ),
   list(
-    type = "StandAge", 
-    var = "StandAge_group", 
-    name = "Study_Duration_Group_Comparison_Summary",
-    groups_list = "stand_age_groups",
-    values = stand_age_groups
+    type = "Experimental_Duration", 
+    var = "Experimental_Duration_group", 
+    name = "Experimental_Duration_Group_Comparison_Summary",
+    groups_list = "experimental_duration_groups",
+    values = experimental_duration_groups
   ))
 # Create a separate worksheet for each group type
 for(config in group_configs) {
@@ -1272,8 +1280,8 @@ for(trait in names(all_results)) {
             QM = group_interaction_model$QM,
             df1 = group_interaction_model$m,
             p_value = ifelse(length(group_interaction_model$pval) > 1, 
-                           group_interaction_model$pval[2], 
-                           group_interaction_model$pval[1]),
+                             group_interaction_model$pval[2], 
+                             group_interaction_model$pval[1]),
             k = group_interaction_model$k,
             n_Groups = length(unique_groups),
             Groups = paste(unique_groups, collapse = ", "),
@@ -1298,7 +1306,7 @@ if(length(group_effect_summary_list) > 0) {
     order(
       group_effect_summary_df$Trait,
       factor(group_effect_summary_df$Group_Type,
-             levels = c("Ecosystem", "Season", "SoilDepth", "Frozen_Soil", "StandAge"))
+             levels = c("Ecosystem", "Season", "SoilDepth", "Frozen_Soil_Types", "Experimental_Duration"))
     ),
   ]
   
@@ -1428,42 +1436,42 @@ if(length(season_basic_summary_list) > 0) {
 }
 
 # ==================== Worksheet13-17: Other group basic models ====================
-# For brevity, the frozen-soil group basic model is shown here; the others are similar
+# For brevity, the frozen soil types group basic model is shown here; the others are similar
 
-# Worksheet13: Frozen_Soil_Group_Basic_Models
-cat("  Generate frozen-soil group basic models...\n")
+# Worksheet13: Frozen_Soil_Types_Group_Basic_Models
+cat("  Generate frozen soil types group basic models...\n")
 frozen_basic_summary_list <- list()
 
 for(trait in names(all_results)) {
-  if(!is.null(all_results[[trait]]$frozen_groups)) {
+  if(!is.null(all_results[[trait]]$frozen_soil_type_groups)) {
     # Get the original data
     original_trait <- traits[clean_traits == trait][1]
     d_current <- subset(d2, Trait == original_trait)
     
-    for(frozen in names(all_results[[trait]]$frozen_groups)) {
+    for(frozen in names(all_results[[trait]]$frozen_soil_type_groups)) {
       # Get data statistics for this group
       frozen_data <- d_current[d_current$Types_of_frozen_soil == frozen & !is.na(d_current$Types_of_frozen_soil), ]
       frozen_name <- ifelse(frozen == "P", "Permafrost", "Non_permafrost")
       
-      group_results <- all_results[[trait]]$frozen_groups[[frozen]]
+      group_results <- all_results[[trait]]$frozen_soil_type_groups[[frozen]]
       
-      # Extract basic model information for this frozen-soil type
+      # Extract basic model information for this frozen soil type
       if(!is.null(group_results$sa)) {
         sa_frozen_data <- subset(frozen_data, `Treatment_1` == "Increased snowpack thickness")
-        sa_stats <- get_analysis_stats(sa_frozen_data, trait, "Increased snowpack thickness", list(type = "Frozen_Soil", value = frozen_name))
+        sa_stats <- get_analysis_stats(sa_frozen_data, trait, "Increased snowpack thickness", list(type = "Frozen_Soil_Types", value = frozen_name))
         
         frozen_basic_summary_list[[paste0(trait, "_", frozen, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
           group_results$sa, paste0(frozen_name, " - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
         sr_frozen_data <- subset(frozen_data, `Treatment_1` == "Decreased snowpack thickness")
-        sr_stats <- get_analysis_stats(sr_frozen_data, trait, "Decreased snowpack thickness", list(type = "Frozen_Soil", value = frozen_name))
+        sr_stats <- get_analysis_stats(sr_frozen_data, trait, "Decreased snowpack thickness", list(type = "Frozen_Soil_Types", value = frozen_name))
         
         frozen_basic_summary_list[[paste0(trait, "_", frozen, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
           group_results$sr, paste0(frozen_name, " - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
-        treatment_stats <- get_analysis_stats(frozen_data, trait, "Treatment Comparison", list(type = "Frozen_Soil", value = frozen_name))
+        treatment_stats <- get_analysis_stats(frozen_data, trait, "Treatment Comparison", list(type = "Frozen_Soil_Types", value = frozen_name))
         
         frozen_basic_summary_list[[paste0(trait, "_", frozen, "_TreatmentModel")]] <- extract_model_summary(
           group_results$treatment_model, paste0(frozen_name, " - Treatment Comparison"), treatment_stats)
@@ -1479,12 +1487,12 @@ if(length(frozen_basic_summary_list) > 0) {
   
   if(!is.null(frozen_basic_summary_df)) {
     frozen_basic_summary_df$Trait <- gsub("_.*", "", rownames(frozen_basic_summary_df))
-    frozen_basic_summary_df$Frozen_Type <- sapply(strsplit(rownames(frozen_basic_summary_df), "_"), function(x) {
+    frozen_basic_summary_df$Frozen_Soil_Type <- sapply(strsplit(rownames(frozen_basic_summary_df), "_"), function(x) {
       ifelse(x[2] == "P", "Permafrost", "Non_permafrost")
     })
     rownames(frozen_basic_summary_df) <- NULL
     
-    sheet_name <- get_unique_sheet_name("Frozen_Soil_Group_Basic_Models", used_sheet_names)
+    sheet_name <- get_unique_sheet_name("Frozen_Soil_Types_Group_Basic_Models", used_sheet_names)
     used_sheet_names <- c(used_sheet_names, sheet_name)
     addWorksheet(wb, sheet_name)
     writeData(wb, sheet_name, frozen_basic_summary_df)
@@ -1492,66 +1500,66 @@ if(length(frozen_basic_summary_list) > 0) {
   }
 }
 
-# Worksheet14: Study_Duration_Group_Basic_Models
-cat("  Generate study-duration group basic models...\n")
-stand_age_basic_summary_list <- list()
+# Worksheet14: Experimental_Duration_Group_Basic_Models
+cat("  Generate experimental duration group basic models...\n")
+experimental_duration_basic_summary_list <- list()
 
 for(trait in names(all_results)) {
-  if(!is.null(all_results[[trait]]$stand_age_groups)) {
+  if(!is.null(all_results[[trait]]$experimental_duration_groups)) {
     # Get the original data
     original_trait <- traits[clean_traits == trait][1]
     d_current <- subset(d2, Trait == original_trait)
     
-    for(age_group in names(all_results[[trait]]$stand_age_groups)) {
+    for(age_group in names(all_results[[trait]]$experimental_duration_groups)) {
       # Get data statistics for this group
-      age_data <- d_current[d_current$StandAge_group == age_group & !is.na(d_current$StandAge_group), ]
+      age_data <- d_current[d_current$Experimental_Duration_group == age_group & !is.na(d_current$Experimental_Duration_group), ]
       
-      group_results <- all_results[[trait]]$stand_age_groups[[age_group]]
+      group_results <- all_results[[trait]]$experimental_duration_groups[[age_group]]
       
       if(!is.null(group_results$sa)) {
         sa_age_data <- subset(age_data, `Treatment_1` == "Increased snowpack thickness")
-        sa_stats <- get_analysis_stats(sa_age_data, trait, "Increased snowpack thickness", list(type = "StandAge", value = paste0(age_group, " years")))
+        sa_stats <- get_analysis_stats(sa_age_data, trait, "Increased snowpack thickness", list(type = "Experimental_Duration", value = paste0(age_group, " years")))
         
-        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
+        experimental_duration_basic_summary_list[[paste0(trait, "_", age_group, "_IncreasedSnowpackThickness")]] <- extract_model_summary(
           group_results$sa, paste0(age_group, " years - Increased snowpack thickness"), sa_stats)
       }
       if(!is.null(group_results$sr)) {
         sr_age_data <- subset(age_data, `Treatment_1` == "Decreased snowpack thickness")
-        sr_stats <- get_analysis_stats(sr_age_data, trait, "Decreased snowpack thickness", list(type = "StandAge", value = paste0(age_group, " years")))
+        sr_stats <- get_analysis_stats(sr_age_data, trait, "Decreased snowpack thickness", list(type = "Experimental_Duration", value = paste0(age_group, " years")))
         
-        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
+        experimental_duration_basic_summary_list[[paste0(trait, "_", age_group, "_DecreasedSnowpackThickness")]] <- extract_model_summary(
           group_results$sr, paste0(age_group, " years - Decreased snowpack thickness"), sr_stats)
       }
       if(!is.null(group_results$treatment_model)) {
-        treatment_stats <- get_analysis_stats(age_data, trait, "Treatment Comparison", list(type = "StandAge", value = paste0(age_group, " years")))
+        treatment_stats <- get_analysis_stats(age_data, trait, "Treatment Comparison", list(type = "Experimental_Duration", value = paste0(age_group, " years")))
         
-        stand_age_basic_summary_list[[paste0(trait, "_", age_group, "_TreatmentModel")]] <- extract_model_summary(
+        experimental_duration_basic_summary_list[[paste0(trait, "_", age_group, "_TreatmentModel")]] <- extract_model_summary(
           group_results$treatment_model, paste0(age_group, " years - Treatment Comparison"), treatment_stats)
       }
     }
   }
 }
 
-if(length(stand_age_basic_summary_list) > 0) {
-  stand_age_basic_summary_df <- do.call(rbind, lapply(stand_age_basic_summary_list, function(x) {
+if(length(experimental_duration_basic_summary_list) > 0) {
+  experimental_duration_basic_summary_df <- do.call(rbind, lapply(experimental_duration_basic_summary_list, function(x) {
     if(!is.null(x)) return(x)
   }))
   
-  if(!is.null(stand_age_basic_summary_df)) {
-    stand_age_basic_summary_df$Trait <- gsub("_.*", "", rownames(stand_age_basic_summary_df))
-    stand_age_basic_summary_df$StandAge_Group <- sapply(strsplit(rownames(stand_age_basic_summary_df), "_"), function(x) paste0(x[2], " years"))
-    rownames(stand_age_basic_summary_df) <- NULL
+  if(!is.null(experimental_duration_basic_summary_df)) {
+    experimental_duration_basic_summary_df$Trait <- gsub("_.*", "", rownames(experimental_duration_basic_summary_df))
+    experimental_duration_basic_summary_df$Experimental_Duration_Group <- sapply(strsplit(rownames(experimental_duration_basic_summary_df), "_"), function(x) paste0(x[2], " years"))
+    rownames(experimental_duration_basic_summary_df) <- NULL
     
-    sheet_name <- get_unique_sheet_name("Study_Duration_Group_Basic_Models", used_sheet_names)
+    sheet_name <- get_unique_sheet_name("Experimental_Duration_Group_Basic_Models", used_sheet_names)
     used_sheet_names <- c(used_sheet_names, sheet_name)
     addWorksheet(wb, sheet_name)
-    writeData(wb, sheet_name, stand_age_basic_summary_df)
+    writeData(wb, sheet_name, experimental_duration_basic_summary_df)
     cat("  Generated worksheet:", sheet_name, "\n")
   }
 }
 
 # Worksheet15: Soil_Depth_Group_Basic_Models
-cat("  Generate soil-depth group basic models...\n")
+cat("  Generate soil depth group basic models...\n")
 soil_depth_basic_summary_list <- list()
 
 for(trait in names(all_results)) {
@@ -1671,8 +1679,8 @@ for(trait in names(all_results)) {
     Season_Interaction = ifelse(!is.null(all_results[[trait]]$overall$season_interaction), TRUE, FALSE),
     Ecosystem_Groups = ifelse(!is.null(all_results[[trait]]$ecosystem_groups), TRUE, FALSE),
     Season_Groups = ifelse(!is.null(all_results[[trait]]$season_groups), TRUE, FALSE),
-    Frozen_Groups = ifelse(!is.null(all_results[[trait]]$frozen_groups), TRUE, FALSE),
-    StandAge_Groups = ifelse(!is.null(all_results[[trait]]$stand_age_groups), TRUE, FALSE),
+    Frozen_Soil_Type_Groups = ifelse(!is.null(all_results[[trait]]$frozen_soil_type_groups), TRUE, FALSE),
+    Experimental_Duration_Groups = ifelse(!is.null(all_results[[trait]]$experimental_duration_groups), TRUE, FALSE),
     SoilDepth_Groups = ifelse(!is.null(all_results[[trait]]$soil_depth_groups), TRUE, FALSE),
     Study_id_Count = overall_stats$Study_id_Count,
     Row_id_Count = overall_stats$Row_id_Count,
@@ -1739,5 +1747,3 @@ for(trait in names(all_results)) {
 }
 
 sink()
-
-
