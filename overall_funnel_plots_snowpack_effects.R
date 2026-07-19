@@ -44,7 +44,7 @@ panel_size_cm <- 5
 dpi <- 600
 
 # Font and size
-font_family <- "serif"
+font_family <- "Arial"
 font_size <- 11
 
 # Treatment labels
@@ -356,25 +356,52 @@ prepare_effect_size <- function(df_raw) {
   ))
 }
 
-save_fixed_panel_png <- function(p, filename, panel_size_cm = 5, dpi = 600) {
+save_fixed_panel_png <- function(p, filename, panel_size_cm = 5, dpi = 600,
+                                 image_width_cm = 7.4, image_height_cm = 7.0) {
   g <- ggplotGrob(p)
   
-  panel_rows <- unique(g$layout$t[g$layout$name == "panel"])
-  panel_cols <- unique(g$layout$l[g$layout$name == "panel"])
+  # Fix every layout column and row so that different tick-label widths
+  # cannot move or resize the plotting frame.
+  g$widths <- unit(rep(0, length(g$widths)), "cm")
+  g$heights <- unit(rep(0, length(g$heights)), "cm")
   
-  g$heights[panel_rows] <- unit(panel_size_cm, "cm")
-  g$widths[panel_cols] <- unit(panel_size_cm, "cm")
+  set_fixed_width <- function(layout_name, width_cm) {
+    idx <- which(g$layout$name == layout_name)
+    if (length(idx) > 0) {
+      cols <- unique(unlist(Map(seq, g$layout$l[idx], g$layout$r[idx])))
+      g$widths[cols] <<- unit(width_cm, "cm")
+    }
+  }
   
-  total_w <- convertWidth(sum(g$widths), "cm", valueOnly = TRUE)
-  total_h <- convertHeight(sum(g$heights), "cm", valueOnly = TRUE)
+  set_fixed_height <- function(layout_name, height_cm) {
+    idx <- which(g$layout$name == layout_name)
+    if (length(idx) > 0) {
+      rows <- unique(unlist(Map(seq, g$layout$t[idx], g$layout$b[idx])))
+      g$heights[rows] <<- unit(height_cm, "cm")
+    }
+  }
   
-  total_w <- total_w + 1.0
-  total_h <- total_h + 1.0
+  # Fixed horizontal structure: outer margin + y title + y ticks + panel + right space
+  g$widths[1] <- unit(0.20, "cm")
+  g$widths[length(g$widths)] <- unit(0.20, "cm")
+  set_fixed_width("ylab-l", 0.65)
+  set_fixed_width("axis-l", 0.85)
+  set_fixed_width("panel", panel_size_cm)
+  set_fixed_width("axis-r", 0.10)
   
+  # Fixed vertical structure: outer margin + panel + x ticks + x title
+  g$heights[1] <- unit(0.20, "cm")
+  g$heights[length(g$heights)] <- unit(0.20, "cm")
+  set_fixed_height("axis-t", 0.05)
+  set_fixed_height("panel", panel_size_cm)
+  set_fixed_height("axis-b", 0.50)
+  set_fixed_height("xlab-b", 0.60)
+  
+  # Fixed full canvas size for every exported image
   png(
     filename = filename,
-    width = total_w,
-    height = total_h,
+    width = image_width_cm,
+    height = image_height_cm,
     units = "cm",
     res = dpi,
     bg = "white"
@@ -384,7 +411,6 @@ save_fixed_panel_png <- function(p, filename, panel_size_cm = 5, dpi = 600) {
   grid.draw(g)
   dev.off()
 }
-
 # ==================== Funnel plot function ====================
 
 plot_funnel <- function(data, filename, point_color = "gray50", point_border = "gray70",
@@ -485,7 +511,7 @@ plot_funnel <- function(data, filename, point_color = "gray50", point_border = "
       panel.grid.major = element_blank(),
       panel.border = element_rect(color = "black", fill = NA, linewidth = 0.45),
       aspect.ratio = 1,
-      plot.margin = margin(0.65, 0.65, 0.65, 0.65, "cm")
+      plot.margin = margin(0.50, 0.65, 0.50, 0.65, "cm")
     )
   
   save_fixed_panel_png(

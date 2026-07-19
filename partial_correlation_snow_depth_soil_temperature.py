@@ -54,6 +54,8 @@ from rasterio.transform import Affine
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.font_manager import FontProperties
 
 import geopandas as gpd
 from scipy import stats
@@ -66,7 +68,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # =============================================================================
 # 1. Main configuration
 # =============================================================================
-OUT_ROOT = r"H:\ERA_TIFF\partial_corr_snow_depth_soil_temperature_snowfreq30_outputs"
+OUT_ROOT = r"I:\ERA_TIFF\!partial_corr_stl1_final_outputs_v2_english_full"
 
 OUT_RASTER = os.path.join(OUT_ROOT, "01_rasters")
 OUT_FIG = os.path.join(OUT_ROOT, "02_quicklook_figures")
@@ -144,16 +146,34 @@ CHECK_ALIGNMENT = True
 # 2. Publication plotting configuration
 # =============================================================================
 FIG_DPI = 600
-WORLD_SHP = r"H:\world_map\world_map\global_all_country.shp"
-# Update WORLD_SHP if your boundary file is stored in a different English-named folder.
 
+# Confirmed world boundary path.
+WORLD_SHP = "I:\\u4e16\u754c\u5730\u56fe\\u4e16\u754c\u5730\u56fe\\global_all_country.shp"
+
+# Keep the original global font setting for figures that were not requested
+# to change. The correlation legend is explicitly formatted in Arial below.
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams["axes.unicode_minus"] = False
 
 BG_RGB = (243 / 255, 243 / 255, 243 / 255)
 EDGE_RGB = (175 / 255, 175 / 255, 175 / 255)
-GRID_RGB = (220 / 255, 220 / 255, 220 / 255)
-CMAP = "RdBu_r"
+
+# Requested correlation colors:
+# negative correlation = RGB (32, 56, 136)
+# zero correlation     = white
+# positive correlation = RGB (225, 156, 102)
+NEGATIVE_CORR_RGB = (32 / 255, 56 / 255, 136 / 255)
+ZERO_CORR_RGB = (1.0, 1.0, 1.0)
+POSITIVE_CORR_RGB = (225 / 255, 156 / 255, 102 / 255)
+
+CORR_CMAP = LinearSegmentedColormap.from_list(
+    "custom_partial_correlation",
+    [NEGATIVE_CORR_RGB, ZERO_CORR_RGB, POSITIVE_CORR_RGB],
+    N=256
+)
+CORR_CMAP.set_bad(color="white")
+
+ARIAL_FONT = FontProperties(family="Arial")
 
 SCATTER_FACE = (238 / 255, 156 / 255, 74 / 255)
 SCATTER_EDGE = (175 / 255, 175 / 255, 175 / 255)
@@ -164,10 +184,23 @@ MAX_PLOT_POINTS_PER_GROUP = 30000
 SCATTER_RANDOM_STATE = 42
 
 
+def apply_arial_to_colorbar(colorbar):
+    """Apply Arial to a correlation colorbar title, label, and tick labels."""
+    colorbar.ax.title.set_fontproperties(ARIAL_FONT)
+    colorbar.ax.xaxis.label.set_fontproperties(ARIAL_FONT)
+    colorbar.ax.yaxis.label.set_fontproperties(ARIAL_FONT)
+
+    for tick_label in colorbar.ax.get_xticklabels():
+        tick_label.set_fontproperties(ARIAL_FONT)
+
+    for tick_label in colorbar.ax.get_yticklabels():
+        tick_label.set_fontproperties(ARIAL_FONT)
+
+
 # =============================================================================
 # 3. Input path configuration
 # =============================================================================
-ERA_BASE_DIR = r"H:\ERA_TIFF"
+ERA_BASE_DIR = r"I:\ERA_TIFF"
 
 ERA_STYLE_VARS = {
     "stl1": "stl1",
@@ -186,27 +219,27 @@ ERA_STYLE_VARS = {
 
 SPECIAL_MONTHLY_VARS = {
     "asn": {
-        "dir": r"H:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\asn\asn",
+        "dir": r"I:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\asn\asn",
         "prefix": "a25738c980fe5e74f46d84d68f745a99_asn_"
     },
     "slhf": {
-        "dir": r"H:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\slhf\slhf",
+        "dir": r"I:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\slhf\slhf",
         "prefix": "9ce01cf43be7606676d84be71fe19678_slhf_"
     },
     "ssr": {
-        "dir": r"H:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\ssr\ssr",
+        "dir": r"I:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\ssr\ssr",
         "prefix": "9ce01cf43be7606676d84be71fe19678_ssr_"
     },
     "str": {
-        "dir": r"H:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\str\str",
+        "dir": r"I:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\str\str",
         "prefix": "9ce01cf43be7606676d84be71fe19678_str_"
     },
     "v10": {
-        "dir": r"H:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\v10\v10",
+        "dir": r"I:\new_factor_tif\9ce01cf43be7606676d84be71fe19678\v10\v10",
         "prefix": "9ce01cf43be7606676d84be71fe19678_v10_"
     },
     "t2m": {
-        "dir": r"H:\new_factor_tif1\de34709100aa97f6f68a02131b8fde57\t2m\t2m",
+        "dir": r"I:\new_factor_tif1\de34709100aa97f6f68a02131b8fde57\t2m\t2m",
         "prefix": "de34709100aa97f6f68a02131b8fde57_t2m_"
     },
 }
@@ -931,12 +964,10 @@ def save_raster(out_tif, arr, profile, nodata=NODATA_OUT, dtype="float32"):
 def save_corr_png(out_png, arr, title):
     plt.figure(figsize=(10, 6))
     masked = np.ma.masked_invalid(arr)
-    cmap = plt.cm.RdBu_r.copy()
-    cmap.set_bad(color="white")
-
-    image = plt.imshow(masked, cmap=cmap, vmin=R_VMIN, vmax=R_VMAX)
+    image = plt.imshow(masked, cmap=CORR_CMAP, vmin=R_VMIN, vmax=R_VMAX)
     colorbar = plt.colorbar(image, fraction=0.035, pad=0.03)
     colorbar.set_label("Partial correlation coefficient (r)", fontsize=11)
+    apply_arial_to_colorbar(colorbar)
 
     plt.title(title, fontsize=13)
     plt.axis("off")
@@ -950,12 +981,10 @@ def save_corr_png(out_png, arr, title):
 def save_corr_png_with_sig_points(out_png, r_arr, p_arr, title):
     plt.figure(figsize=(10, 6))
     masked = np.ma.masked_invalid(r_arr)
-    cmap = plt.cm.RdBu_r.copy()
-    cmap.set_bad(color="white")
-
-    image = plt.imshow(masked, cmap=cmap, vmin=R_VMIN, vmax=R_VMAX)
+    image = plt.imshow(masked, cmap=CORR_CMAP, vmin=R_VMIN, vmax=R_VMAX)
     colorbar = plt.colorbar(image, fraction=0.035, pad=0.03)
     colorbar.set_label("Partial correlation coefficient (r)", fontsize=11)
+    apply_arial_to_colorbar(colorbar)
 
     significant = np.isfinite(p_arr) & (p_arr < ALPHA)
     rows, cols = np.where(significant)
@@ -1033,11 +1062,10 @@ def save_rpn_triptych(out_png, r_arr, p_arr, n_arr, main_title):
     fig, axes = plt.subplots(1, 3, figsize=(16, 5.8))
 
     masked_r = np.ma.masked_invalid(r_arr)
-    cmap_r = plt.cm.RdBu_r.copy()
-    cmap_r.set_bad(color="white")
-    image_r = axes[0].imshow(masked_r, cmap=cmap_r, vmin=R_VMIN, vmax=R_VMAX)
+    image_r = axes[0].imshow(masked_r, cmap=CORR_CMAP, vmin=R_VMIN, vmax=R_VMAX)
     colorbar_r = fig.colorbar(image_r, ax=axes[0], fraction=0.046, pad=0.03)
     colorbar_r.set_label("r", fontsize=10)
+    apply_arial_to_colorbar(colorbar_r)
     axes[0].set_title("Partial correlation", fontsize=11)
     axes[0].axis("off")
 
@@ -1115,6 +1143,16 @@ def wrap_longitude_if_needed(arr, transform):
 
 
 def save_publication_world_map_tif(r_arr, profile):
+    """
+    Save the publication-style large-scale pixel partial-correlation map.
+
+    Plot-specific requirements:
+    1. No background grid lines.
+    2. No longitude or latitude coordinates, labels, ticks, or tick marks.
+    3. Arial font for the partial-correlation legend.
+    4. Negative correlation color: RGB (32, 56, 136).
+    5. Positive correlation color: RGB (225, 156, 102).
+    """
     crs = profile["crs"]
     transform = profile["transform"]
     width = profile["width"]
@@ -1122,8 +1160,14 @@ def save_publication_world_map_tif(r_arr, profile):
 
     arr_fixed, new_transform = wrap_longitude_if_needed(r_arr, transform)
 
-    out_r_corrected = os.path.join(OUT_PUB_MAP, f"{TARGET_VAR}_partial_corr_r_lonfix.tif")
-    out_fig = os.path.join(OUT_PUB_MAP, f"{TARGET_VAR}_partial_corr_world_map_pub.tif")
+    out_r_corrected = os.path.join(
+        OUT_PUB_MAP,
+        f"{TARGET_VAR}_partial_corr_r_lonfix.tif"
+    )
+    out_fig = os.path.join(
+        OUT_PUB_MAP,
+        f"{TARGET_VAR}_partial_corr_world_map_pub.tif"
+    )
 
     meta = profile.copy()
     meta.update({
@@ -1135,13 +1179,21 @@ def save_publication_world_map_tif(r_arr, profile):
         "compress": COMPRESS
     })
 
-    save_arr = np.where(np.isfinite(arr_fixed), arr_fixed.astype(np.float32), NODATA_OUT).astype(np.float32)
+    save_arr = np.where(
+        np.isfinite(arr_fixed),
+        arr_fixed.astype(np.float32),
+        NODATA_OUT
+    ).astype(np.float32)
+
     with rasterio.open(out_r_corrected, "w", **meta) as dst:
         dst.write(save_arr, 1)
+
     ensure_file_saved(out_r_corrected, "GeoTIFF")
 
     if not os.path.exists(WORLD_SHP):
-        raise FileNotFoundError(f"World shapefile does not exist: {WORLD_SHP}")
+        raise FileNotFoundError(
+            f"World boundary shapefile does not exist: {WORLD_SHP}"
+        )
 
     world = gpd.read_file(WORLD_SHP)
     if world.crs != crs:
@@ -1156,55 +1208,105 @@ def save_publication_world_map_tif(r_arr, profile):
     ax = fig.add_axes([0.055, 0.12, 0.89, 0.78])
     ax.set_facecolor("white")
 
-    world.plot(ax=ax, facecolor=BG_RGB, edgecolor=EDGE_RGB, linewidth=0.5, zorder=1)
+    world.plot(
+        ax=ax,
+        facecolor=BG_RGB,
+        edgecolor=EDGE_RGB,
+        linewidth=0.5,
+        zorder=1
+    )
+
+    masked_r = np.ma.masked_invalid(arr_fixed)
 
     image = ax.imshow(
-        arr_fixed,
+        masked_r,
         extent=[left, right, bottom, top],
         origin="upper",
-        cmap=CMAP,
-        vmin=-1,
-        vmax=1,
+        cmap=CORR_CMAP,
+        vmin=R_VMIN,
+        vmax=R_VMAX,
         interpolation="none",
         zorder=2
     )
 
-    world.boundary.plot(ax=ax, color=EDGE_RGB, linewidth=0.5, zorder=3)
+    world.boundary.plot(
+        ax=ax,
+        color=EDGE_RGB,
+        linewidth=0.5,
+        zorder=3
+    )
 
     ax.set_xlim(-180, 180)
     ax.set_ylim(-60, 85)
 
-    xticks = [-150, -100, -50, 0, 50, 100, 150]
-    yticks = [-60, -30, 0, 30, 60]
-    ax.set_xticks(xticks)
-    ax.set_yticks(yticks)
-    ax.set_xticklabels([format_lon_dms(x) for x in xticks], fontsize=12)
-    ax.set_yticklabels([format_lat_dms(y) for y in yticks], fontsize=12)
+    # Remove background grid lines and all longitude/latitude information.
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.tick_params(
+        axis="both",
+        which="both",
+        bottom=False,
+        top=False,
+        left=False,
+        right=False,
+        labelbottom=False,
+        labeltop=False,
+        labelleft=False,
+        labelright=False
+    )
 
-    for label in ax.get_yticklabels():
-        label.set_rotation(90)
-        label.set_va("center")
-        label.set_ha("center")
-
-    ax.grid(True, which="major", axis="both", color=GRID_RGB, linestyle="-", linewidth=0.6, zorder=0)
-    ax.tick_params(axis="both", which="major", direction="out", length=4, width=0.8, colors="black", pad=7)
-
+    # Retain the outer map frame.
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_linewidth(0.8)
         spine.set_color("black")
 
     ax.set_title("")
-    ax.set_xlabel("Longitude", fontsize=14, labelpad=10)
-    ax.set_ylabel("Latitude", fontsize=14, labelpad=14)
 
     cax = ax.inset_axes([0.39, 0.045, 0.22, 0.028])
-    colorbar = plt.colorbar(image, cax=cax, orientation="horizontal", extend="both")
+    colorbar = plt.colorbar(
+        image,
+        cax=cax,
+        orientation="horizontal",
+        extend="both"
+    )
     colorbar.set_ticks([-1, -0.5, 0, 0.5, 1])
-    colorbar.ax.tick_params(labelsize=11, direction="out", length=3, width=0.8, pad=2)
-    colorbar.ax.set_title("Partial correlation coefficient (r)", fontsize=12, pad=6)
+    colorbar.ax.tick_params(
+        labelsize=11,
+        direction="out",
+        length=3,
+        width=0.8,
+        pad=2
+    )
+    colorbar.ax.set_title(
+        "Partial correlation coefficient (r)",
+        fontsize=12,
+        pad=6,
+        fontproperties=ARIAL_FONT
+    )
+    apply_arial_to_colorbar(colorbar)
 
-    plt.savefig(out_fig, dpi=FIG_DPI, format="tif", bbox_inches="tight", facecolor=fig.get_facecolor())
+    try:
+        fig.savefig(
+            out_fig,
+            dpi=FIG_DPI,
+            format="tif",
+            bbox_inches="tight",
+            facecolor=fig.get_facecolor(),
+            pil_kwargs={"compression": "tiff_lzw"}
+        )
+    except TypeError:
+        fig.savefig(
+            out_fig,
+            dpi=FIG_DPI,
+            format="tif",
+            bbox_inches="tight",
+            facecolor=fig.get_facecolor()
+        )
+
     plt.close(fig)
     ensure_file_saved(out_fig, "TIF")
 
@@ -1928,6 +2030,9 @@ def main():
     log_msg(f"BLOCK_ROWS = {BLOCK_ROWS}")
     log_msg(f"PIXEL_CHUNK = {PIXEL_CHUNK}")
     log_msg(f"Output root: {OUT_ROOT}")
+    log_msg("Publication map: no grid lines or longitude/latitude ticks")
+    log_msg("Correlation colors: negative RGB (32, 56, 136); positive RGB (225, 156, 102)")
+    log_msg("Correlation legend font: Arial")
     log_msg("")
 
     template = get_template_info()

@@ -1,56 +1,60 @@
 # -*- coding: utf-8 -*-
 """
-Fixed-Effects Asymmetric Soil Temperature Response Analysis
------------------------------------------------------------
+Plotting only script: 4 ecosystems response + separate ratio figures + overall ratio figure
+------------------------------------------------------------------------------------------
+只读取已有结果，不重新计算模型。
 
-This script performs a fixed-effects-based asymmetric response analysis of
-soil temperature to snow-depth changes.
+输入：
+1) sampled_panel_filtered_with_landuse.parquet / csv.gz
+2) model_coefficients_by_ecosystem.csv
 
-Workflow:
-1. Load the pre-filtered panel dataset:
-   - sampled_panel_filtered_with_landuse.parquet
-   - or sampled_panel_filtered_with_landuse.csv.gz
+说明：
+- 不再读取 binned_observed_response_by_ecosystem.csv。
+- 在原代码生成的 all_bin_df 中新增 overall 分组。
+- Figure 2b 直接从 all_bin_df 中筛选 group_name == "overall" 后计算。
 
-2. Recalculate model coefficients for each ecosystem:
-   - snow_pos_lag1
-   - snow_neg_lag1
-   - t2m
-   - ssr
-   - beta_pos, beta_neg, control-variable coefficients, p values, and rho_snow
+输出目录：
+RESULT_DIR/6.9结果_全Arial_overall左对齐修正
 
-3. Calculate binned soil temperature responses under equivalent snow-depth changes:
-   - snow addition
-   - snow reduction
-   - mean, SE, 95% CI, p value, and significance stars
+输出：
+1) four_ecosystems_soil_temperature_response.tif
+   - Forest, Wetland, Grassland, Tundra 横向排列
+   - 共用一个 y 轴
+   - 只保留 Forest 的 y 轴刻度
+   - y 轴范围：-10 ~ 10
+   - y 轴刻度：-10、-5、0、5、10
+   - 横坐标：Snow depth (cm)
+   - 纵坐标：Soil temperature (℃)
+   - 不嵌入 ratio 小图
+   - 显著性星号上下错开，避免重叠
+   - 四个子图之间间距缩短，且三个间距一致
 
-4. Generate final figures:
-   - one combined 1 x 4 panel figure:
-     Forest | Wetland | Grassland | Tundra
-   - four separate asymmetry-ratio figures:
-     forest_ratio_response.tif
-     wetland_ratio_response.tif
-     grassland_ratio_response.tif
-     tundra_ratio_response.tif
+2) Figure 2b：global_overall_asymmetry_ratio.tif
+   - 直接从原代码生成的 all_bin_df 中提取 overall 结果
+   - 计算：|Effect_Decreased| / |Effect_Increased|
+   - 文字内容、图例内容与 4 张单独 ratio 图保持一致
+   - 不显示 rho_snow 蓝色水平线，但在图例中保留 rho_snow 数值文字
+   - 版式改为竖向长方形
+   - x 轴：0、20、40、60
+   - y 轴：仅正值
+   - 字体：Arial
 
-5. Export summary tables:
-   - model_coefficients_by_ecosystem_recomputed.csv
+3) 4 张单独的不对称性 ratio 小图：
+   - forest_ratio_response.tif
+   - wetland_ratio_response.tif
+   - grassland_ratio_response.tif
+   - tundra_ratio_response.tif
+   - 横坐标均为：Snow depth (cm)
+   - 比值曲线保持灰黑色
+   - 不显示 rho_snow 蓝色水平线，但在图例中保留 rho_snow 数值文字
+   - ratio 公式统一为：|Effect_Decreased| / |Effect_Increased|
+
+4) 对应统计表：
    - binned_response_4ecosystems.csv
+   - overall_binned_response_from_all_bin_df.csv
    - ratio_response_4ecosystems.csv
    - rho_snow_4ecosystems.csv
-
-Main model:
-    delta_ts = beta_pos * snow_pos_lag1 + beta_neg * snow_neg_lag1
-               + theta_t2m * t2m + theta_ssr * ssr
-               + fixed effects + error
-
-Asymmetry metric:
-    rho_snow = |beta_neg| / |beta_pos|
-
-Note:
-- This script starts from an existing pre-filtered panel dataset.
-- It does not resample the original TIFF files.
-- The input panel must contain t2m and ssr columns.
-- All paths and output names are written in English.
+   - overall_ratio_from_all_bin_df.csv
 """
 
 import os
@@ -63,32 +67,98 @@ import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 
 # =========================================================
-# 0) Paths and parameters
+# 0) 路径与参数
 # =========================================================
-# Put the input panel file in this directory, or modify this path.
-RESULT_DIR = r"I:\ERA_TIFF\snow_depth_soil_temperature_ecosystem_asymmetry_final_outputs"
+RESULT_DIR = r"I:\ERA_TIFF\最终版积雪厚度-土壤温度-生态系统ecosystem_stl1_stable_snow_lag1_same_amplitude_1_100cm_final_figs"
+
+# 最终输出路径
+PLOT_OUT_DIR = os.path.join(RESULT_DIR, "6.9结果_全Arial_overall左对齐修正")
+os.makedirs(PLOT_OUT_DIR, exist_ok=True)
 
 PANEL_PARQUET = os.path.join(RESULT_DIR, "sampled_panel_filtered_with_landuse.parquet")
 PANEL_CSVGZ = os.path.join(RESULT_DIR, "sampled_panel_filtered_with_landuse.csv.gz")
+COEF_CSV = os.path.join(RESULT_DIR, "model_coefficients_by_ecosystem.csv")
 
-# Final output folder
-PLOT_OUT_DIR = os.path.join(RESULT_DIR, "fixed_effects_asymmetric_response_results")
-os.makedirs(PLOT_OUT_DIR, exist_ok=True)
-
-# Output file for recomputed model coefficients
-COEF_OUT_CSV = os.path.join(PLOT_OUT_DIR, "model_coefficients_by_ecosystem_recomputed.csv")
-
-# =========================================================
-# 1) Unit and grouping settings
-# =========================================================
-# Use "m" if the original delta_snow_lag1 is in meters.
-# Use "cm" if the original delta_snow_lag1 is already in centimeters.
+# 积雪深度单位
+# 如果原始 delta_snow_lag1 是 m，保留 "m"
+# 如果原始 delta_snow_lag1 已经是 cm，改成 "cm"
 SDE_UNIT = "m"
 
-# Snow-depth amplitude bins up to 60 cm
+# 同幅度分箱，只画到 60 cm
 AMP_CM = [1, 5, 10, 15, 20, 25, 30, 40, 50, 60]
 
-# Four ecosystems used in the final analysis
+# 散点抽样上限
+MAX_SCATTER_PER_SIGN = 25000
+RANDOM_SEED = 42
+
+# 输出分辨率
+DPI = 600
+
+# 4 个生态系统主图参数
+MAIN_FIG_W = 16.0
+MAIN_FIG_H = 4.8
+MAIN_YMIN = -20.0
+MAIN_YMAX = 10.0
+
+PLOT_XMIN = 0.0
+PLOT_XMAX = 62.0
+
+# 单独 ratio 小图参数
+RATIO_FIG_W = 6.0
+RATIO_FIG_H = 4.5
+
+# overall ratio 图参数（Figure 2b）
+OVERALL_RATIO_FIG_W = 4.8
+OVERALL_RATIO_FIG_H = 7.0
+
+# 字体
+plt.rcParams["font.family"] = "Arial"
+plt.rcParams["axes.unicode_minus"] = False
+# 强制所有数学公式（包括下标和希腊字母）使用 Arial 字体
+plt.rcParams["mathtext.fontset"] = "custom"
+plt.rcParams["mathtext.rm"] = "Arial"
+plt.rcParams["mathtext.it"] = "Arial:italic"
+plt.rcParams["mathtext.bf"] = "Arial:bold"
+plt.rcParams["mathtext.sf"] = "Arial"
+plt.rcParams["mathtext.tt"] = "Arial"
+plt.rcParams["mathtext.cal"] = "Arial"
+
+# 主图字号
+TITLE_SIZE = 18
+LABEL_SIZE = 18
+TICK_SIZE = 13
+STAR_SIZE = 7
+
+# ratio 图字号
+RATIO_TITLE_SIZE = 18
+RATIO_LABEL_SIZE = 16
+RATIO_TICK_SIZE = 13
+RATIO_LEGEND_SIZE = 13
+
+SPINE_WIDTH = 0.8
+
+# 颜色
+COLOR_INC = (255 / 255, 192 / 255, 127 / 255)      # Increased snowpack thickness
+COLOR_DEC = (143 / 255, 196 / 255, 222 / 255)      # Decreased snowpack thickness
+
+# ratio 图中“比值曲线”保持灰黑色
+COLOR_RATIO_LINE = (70 / 255, 70 / 255, 70 / 255)
+
+# 星号颜色
+COLOR_STAR = (70 / 255, 70 / 255, 70 / 255)
+
+# ratio 图中 rho_snow 线颜色：RGB(70, 131, 180)
+COLOR_RHO = (70 / 255, 131 / 255, 180 / 255)
+
+# 是否显示显著性星号
+SHOW_STARS = True
+
+# ratio 小图是否显示图例
+SHOW_RATIO_LEGEND = True
+
+# =========================================================
+# 1) 生态系统顺序
+# =========================================================
 ECO_GROUPS = ["forest", "wetland", "grassland", "approx_tundra"]
 
 GROUP_LABELS_EN = {
@@ -106,108 +176,7 @@ OUTPUT_PREFIX = {
 }
 
 # =========================================================
-# 2) Model settings
-# =========================================================
-RECOMPUTE_MODEL = True
-
-# Control variables included in the fixed-effects model
-CONTROL_VARS = ["t2m", "ssr"]
-
-# Fixed effects used in the model.
-# Recommended setting: pixel_id + year + month.
-# If the dataset is too large or slow to process, change this to ["year", "month"].
-FIXED_EFFECTS = ["pixel_id", "year", "month"]
-
-# Iteration settings for alternating demeaning
-FE_MAX_ITER = 20
-FE_TOL = 1e-7
-
-# Minimum sample size required for model fitting
-MIN_N_MODEL = 100
-
-# Definition of snow_neg_lag1:
-# True: snow_neg_lag1 = absolute magnitude of negative snow anomaly.
-# This is recommended because beta_neg can then be interpreted as the effect of snow-reduction magnitude.
-USE_NEGATIVE_MAGNITUDE = True
-
-# =========================================================
-# 3) Plot settings
-# =========================================================
-MAX_SCATTER_PER_SIGN = 25000
-RANDOM_SEED = 42
-DPI = 600
-
-# Combined 1 x 4 figure
-MAIN_FIG_W = 16.0
-MAIN_FIG_H = 4.8
-
-MAIN_YMIN = -10.0
-MAIN_YMAX = 7.5
-
-PLOT_XMIN = 0.0
-PLOT_XMAX = 62.0
-
-# Separate ratio figures
-RATIO_FIG_W = 6.0
-RATIO_FIG_H = 4.5
-
-# Font settings
-plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["axes.unicode_minus"] = False
-plt.rcParams["mathtext.fontset"] = "stix"
-
-# ---------------------------------------------------------
-# Main four-ecosystem figure settings
-# ---------------------------------------------------------
-# Ecosystem title font size
-TITLE_SIZE = 14
-
-# Common x/y axis title font size
-LABEL_SIZE = 14
-
-# x/y tick-label font size
-TICK_SIZE = 12
-
-# Significance star font size
-STAR_SIZE = 12
-
-# Axis frame and tick width for the main four-ecosystem figure
-MAIN_SPINE_WIDTH = 0.6
-
-# ---------------------------------------------------------
-# Separate ratio figure settings
-# ---------------------------------------------------------
-RATIO_TITLE_SIZE = 20
-RATIO_LABEL_SIZE = 18
-RATIO_TICK_SIZE = 15
-RATIO_LEGEND_SIZE = 13
-
-# Keep ratio figure frame width unchanged
-RATIO_SPINE_WIDTH = 1.2
-
-# Colors
-COLOR_INC = (255 / 255, 192 / 255, 127 / 255)
-COLOR_DEC = (143 / 255, 196 / 255, 222 / 255)
-
-# Ratio curve color
-COLOR_RATIO_LINE = (70 / 255, 70 / 255, 70 / 255)
-
-# rho_snow line color: RGB(70, 131, 180)
-COLOR_RHO = (70 / 255, 131 / 255, 180 / 255)
-
-COLOR_STAR = (70 / 255, 70 / 255, 70 / 255)
-
-SHOW_STARS = True
-SHOW_RATIO_LEGEND = True
-
-# Fine-tune star positions to avoid clipping and overlap near 1 cm and 5 cm
-STAR_X_SHIFT_FIRST = 1.15
-STAR_X_SHIFT_SECOND = 0.35
-STAR_Y_BASE_OFFSET = 0.030
-STAR_Y_TIER_OFFSET = 0.050
-
-# =========================================================
-# 4) Basic utility functions
+# 2) 基础函数
 # =========================================================
 def load_table_any(parquet_path=None, csv_gz_path=None):
     if parquet_path is not None and os.path.exists(parquet_path):
@@ -217,78 +186,80 @@ def load_table_any(parquet_path=None, csv_gz_path=None):
         return pd.read_csv(csv_gz_path, compression="gzip")
 
     raise FileNotFoundError(
-        f"Cannot find panel file:\n{parquet_path}\nor\n{csv_gz_path}"
+        f"Cannot find file:\n{parquet_path}\nor\n{csv_gz_path}"
     )
 
 
-def load_panel():
+def load_panel_and_coef():
     print(f"[INFO] Panel parquet: {PANEL_PARQUET}")
     print(f"[INFO] Panel csv.gz : {PANEL_CSVGZ}")
+    print(f"[INFO] Coef csv     : {COEF_CSV}")
 
     panel = load_table_any(PANEL_PARQUET, PANEL_CSVGZ)
 
-    return panel
+    if not os.path.exists(COEF_CSV):
+        raise FileNotFoundError(f"Cannot find file:\n{COEF_CSV}")
+
+    coef = pd.read_csv(COEF_CSV, encoding="utf-8-sig")
+
+    return panel, coef
 
 
 def ensure_needed_columns(panel):
-    needed_cols = [
+    need_cols = [
         "pixel_id",
         "year",
         "month",
         "delta_snow_lag1",
         "delta_ts",
         "ecosystem"
-    ] + CONTROL_VARS
+    ]
 
-    missing_cols = [c for c in needed_cols if c not in panel.columns]
+    miss = [c for c in need_cols if c not in panel.columns]
 
-    if missing_cols:
-        raise RuntimeError(
-            "The panel dataset is missing required columns: "
-            f"{missing_cols}\n"
-            "Please make sure the input panel contains t2m and ssr."
-        )
+    if miss:
+        raise RuntimeError(f"panel 缺少必要字段：{miss}")
 
     return panel
 
 
 def snow_to_cm(x):
     x = pd.to_numeric(x, errors="coerce")
-
     if SDE_UNIT.lower() == "m":
         return x * 100.0
-
     return x
 
 
 def star_from_p(p):
     if pd.isna(p):
         return ""
-
     if p < 0.001:
         return "***"
-
     if p < 0.01:
         return "**"
-
     if p < 0.05:
         return "*"
-
     return ""
 
 
-def pvalue_from_t(t_val, df):
-    if not np.isfinite(t_val) or df <= 0:
-        return np.nan
+def make_bin_edges(centers):
+    centers = np.array(sorted(centers), dtype=float)
+    mids = (centers[:-1] + centers[1:]) / 2.0
+    left = max(0.0, centers[0] - (centers[1] - centers[0]) / 2.0)
+    right = centers[-1] + (centers[-1] - centers[-2]) / 2.0
+    edges = np.concatenate([[left], mids, [right]])
+    return edges
 
-    try:
-        from scipy.stats import t as tdist
-        p = 2 * (1 - tdist.cdf(abs(t_val), df=df))
-        return float(p)
-    except Exception:
-        from math import erf, sqrt
-        p = 2 * (1 - 0.5 * (1 + erf(abs(t_val) / sqrt(2))))
-        return float(p)
+
+BIN_EDGES = make_bin_edges(AMP_CM)
+
+
+def assign_amp_bin_cm(x_cm):
+    idx = np.digitize(x_cm, BIN_EDGES, right=False) - 1
+    idx = np.where((idx >= 0) & (idx < len(AMP_CM)), idx, -1)
+    vals = np.array(AMP_CM, dtype=float)
+    out = np.where(idx >= 0, vals[idx], np.nan)
+    return out
 
 
 def one_sample_pvalue(vals):
@@ -296,7 +267,6 @@ def one_sample_pvalue(vals):
     vals = vals[np.isfinite(vals)]
 
     n = len(vals)
-
     if n < 2:
         return np.nan
 
@@ -308,273 +278,55 @@ def one_sample_pvalue(vals):
 
     t_val = mean / (sd / math.sqrt(n))
 
-    return pvalue_from_t(t_val, n - 1)
-
-
-def make_bin_edges(centers):
-    centers = np.array(sorted(centers), dtype=float)
-
-    mids = (centers[:-1] + centers[1:]) / 2.0
-    left = max(0.0, centers[0] - (centers[1] - centers[0]) / 2.0)
-    right = centers[-1] + (centers[-1] - centers[-2]) / 2.0
-
-    edges = np.concatenate([[left], mids, [right]])
-
-    return edges
-
-
-BIN_EDGES = make_bin_edges(AMP_CM)
-
-
-def assign_amp_bin_cm(x_cm):
-    idx = np.digitize(x_cm, BIN_EDGES, right=False) - 1
-    idx = np.where((idx >= 0) & (idx < len(AMP_CM)), idx, -1)
-
-    vals = np.array(AMP_CM, dtype=float)
-    out = np.where(idx >= 0, vals[idx], np.nan)
-
-    return out
+    try:
+        from scipy.stats import t as tdist
+        p = 2 * (1 - tdist.cdf(abs(t_val), df=n - 1))
+        return float(p)
+    except Exception:
+        try:
+            from math import erf, sqrt
+            p = 2 * (1 - 0.5 * (1 + erf(abs(t_val) / sqrt(2))))
+            return float(p)
+        except Exception:
+            return np.nan
 
 
 # =========================================================
-# 5) Prepare panel data for analysis
+# 3) 数据准备与统计
 # =========================================================
-def prepare_panel_for_analysis(panel):
+def prepare_plot_panel(panel):
     panel = panel.copy()
     panel = ensure_needed_columns(panel)
 
-    panel = panel.replace([np.inf, -np.inf], np.nan)
-
-    panel["delta_snow_lag1_cm"] = snow_to_cm(panel["delta_snow_lag1"])
-    panel["amp_cm"] = np.abs(panel["delta_snow_lag1_cm"])
+    panel["amp_cm"] = snow_to_cm(np.abs(panel["delta_snow_lag1"]))
 
     panel["sign_group"] = np.where(
-        panel["delta_snow_lag1_cm"] > 0,
+        panel["delta_snow_lag1"] > 0,
         "increase",
-        np.where(panel["delta_snow_lag1_cm"] < 0, "decrease", "zero")
+        np.where(panel["delta_snow_lag1"] < 0, "decrease", "zero")
     )
 
-    panel["snow_pos_lag1"] = np.where(
-        panel["delta_snow_lag1_cm"] > 0,
-        panel["delta_snow_lag1_cm"],
-        0.0
-    )
-
-    if USE_NEGATIVE_MAGNITUDE:
-        panel["snow_neg_lag1"] = np.where(
-            panel["delta_snow_lag1_cm"] < 0,
-            np.abs(panel["delta_snow_lag1_cm"]),
-            0.0
-        )
-    else:
-        panel["snow_neg_lag1"] = np.where(
-            panel["delta_snow_lag1_cm"] < 0,
-            panel["delta_snow_lag1_cm"],
-            0.0
-        )
-
-    for var in CONTROL_VARS:
-        panel[var] = pd.to_numeric(panel[var], errors="coerce")
-
-    panel["group_name"] = panel["ecosystem"].astype(str)
+    panel = panel.replace([np.inf, -np.inf], np.nan)
 
     panel = panel.dropna(
         subset=[
-            "delta_snow_lag1_cm",
+            "delta_snow_lag1",
             "delta_ts",
             "amp_cm",
-            "snow_pos_lag1",
-            "snow_neg_lag1",
             "ecosystem"
-        ] + CONTROL_VARS
+        ]
     )
 
     panel = panel[panel["sign_group"].isin(["increase", "decrease"])].copy()
-    panel = panel[panel["group_name"].isin(ECO_GROUPS)].copy()
 
-    panel = panel[(panel["amp_cm"] >= 0) & (panel["amp_cm"] <= 60)].copy()
+    panel["group_name"] = panel["ecosystem"].astype(str)
+
+    # 只保留森林、湿地、草地、苔原
+    panel = panel[panel["group_name"].isin(ECO_GROUPS)].copy()
 
     return panel
 
 
-# =========================================================
-# 6) Fixed-effect residualization and OLS
-# =========================================================
-def residualize_by_fixed_effects(df, cols, fe_cols, max_iter=20, tol=1e-7):
-    """
-    Residualize y and X using alternating demeaning for multiple fixed effects.
-    """
-    if len(fe_cols) == 0:
-        return df[cols].astype(float).copy()
-
-    work = df[cols + fe_cols].copy()
-
-    for c in cols:
-        work[c] = pd.to_numeric(work[c], errors="coerce")
-
-    work = work.dropna(subset=cols + fe_cols).copy()
-
-    resid = work[cols].astype(float).copy()
-    resid = resid - resid.mean(axis=0)
-
-    last_ss = np.inf
-
-    for _ in range(max_iter):
-        for fe in fe_cols:
-            means = resid.groupby(work[fe]).transform("mean")
-            resid = resid - means
-
-        ss = float(np.nansum(resid.values ** 2))
-
-        if last_ss < np.inf:
-            rel_change = abs(last_ss - ss) / max(last_ss, 1e-12)
-            if rel_change < tol:
-                break
-
-        last_ss = ss
-
-    resid.index = work.index
-
-    return resid
-
-
-def fit_ols_on_residuals(y, X):
-    """
-    Fit OLS on residualized y and X.
-    No intercept is added because the variables have already been demeaned.
-    """
-    y = np.asarray(y, dtype=float)
-    X = np.asarray(X, dtype=float)
-
-    mask = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
-    y = y[mask]
-    X = X[mask, :]
-
-    n = len(y)
-    k = X.shape[1]
-
-    if n <= k + 2:
-        raise RuntimeError(f"Insufficient sample size for OLS: n={n}, k={k}")
-
-    beta, residuals, rank, s = np.linalg.lstsq(X, y, rcond=None)
-
-    y_hat = X @ beta
-    e = y - y_hat
-
-    df_resid = n - k
-    sigma2 = float(np.sum(e ** 2) / df_resid)
-
-    xtx_inv = np.linalg.pinv(X.T @ X)
-    var_beta = sigma2 * xtx_inv
-    se = np.sqrt(np.diag(var_beta))
-
-    t_vals = beta / se
-    p_vals = np.array([pvalue_from_t(t, df_resid) for t in t_vals], dtype=float)
-
-    return {
-        "coef": beta,
-        "se": se,
-        "t": t_vals,
-        "p": p_vals,
-        "n": n,
-        "df_resid": df_resid,
-        "rank": rank
-    }
-
-
-def fit_model_for_group(df_group, group_name):
-    """
-    Model:
-    delta_ts = beta_pos * snow_pos_lag1
-             + beta_neg * snow_neg_lag1
-             + theta_t2m * t2m
-             + theta_ssr * ssr
-             + fixed effects
-             + error
-
-    beta_pos represents the marginal effect of snow addition after controlling for t2m, ssr,
-    and multidimensional fixed effects.
-    beta_neg represents the marginal effect of snow reduction after controlling for t2m, ssr,
-    and multidimensional fixed effects.
-    """
-    df = df_group.copy()
-
-    model_cols = ["delta_ts", "snow_pos_lag1", "snow_neg_lag1"] + CONTROL_VARS
-    fe_cols = [c for c in FIXED_EFFECTS if c in df.columns]
-
-    df = df.dropna(subset=model_cols + fe_cols).copy()
-
-    if len(df) < MIN_N_MODEL:
-        print(f"[SKIP MODEL] {group_name}: n={len(df)} < {MIN_N_MODEL}")
-        return []
-
-    print(f"[MODEL] {group_name}: n={len(df)}, controls={CONTROL_VARS}, fixed effects={fe_cols}")
-
-    resid_df = residualize_by_fixed_effects(
-        df=df,
-        cols=model_cols,
-        fe_cols=fe_cols,
-        max_iter=FE_MAX_ITER,
-        tol=FE_TOL
-    )
-
-    y = resid_df["delta_ts"].values
-    x_vars = ["snow_pos_lag1", "snow_neg_lag1"] + CONTROL_VARS
-    X = resid_df[x_vars].values
-
-    fit = fit_ols_on_residuals(y, X)
-
-    rows = []
-
-    for j, var in enumerate(x_vars):
-        rows.append({
-            "group_name": group_name,
-            "group_label": GROUP_LABELS_EN.get(group_name, group_name),
-            "variable": var,
-            "coef": float(fit["coef"][j]),
-            "se": float(fit["se"][j]),
-            "tvalue": float(fit["t"][j]),
-            "pvalue": float(fit["p"][j]),
-            "n": int(fit["n"]),
-            "df_resid": int(fit["df_resid"]),
-            "fixed_effects": "+".join(fe_cols),
-            "controls": "+".join(CONTROL_VARS),
-            "snow_unit": "cm",
-            "negative_term": "magnitude" if USE_NEGATIVE_MAGNITUDE else "signed_negative"
-        })
-
-    return rows
-
-
-def recompute_model_coefficients(plot_panel):
-    all_rows = []
-
-    for group_name in ECO_GROUPS:
-        df_g = plot_panel[plot_panel["group_name"] == group_name].copy()
-
-        if len(df_g) == 0:
-            print(f"[SKIP MODEL] {group_name}: no rows")
-            continue
-
-        rows = fit_model_for_group(df_g, group_name)
-        all_rows.extend(rows)
-
-    coef_df = pd.DataFrame(all_rows)
-
-    coef_df.to_csv(
-        COEF_OUT_CSV,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    print(f"[SAVE] Model coefficients -> {COEF_OUT_CSV}")
-
-    return coef_df
-
-
-# =========================================================
-# 7) Binned response and ratio calculation
-# =========================================================
 def calc_binned_stats(df_group):
     df = df_group.copy()
 
@@ -592,7 +344,6 @@ def calc_binned_stats(df_group):
 
             y = dd["delta_ts"].values.astype(float)
             y = y[np.isfinite(y)]
-
             n = len(y)
 
             if n == 0:
@@ -628,29 +379,11 @@ def calc_binned_stats(df_group):
 
 
 def calc_observed_ratio_curve(bin_df):
-    inc = bin_df[
-        bin_df["sign_group"] == "increase"
-    ][["amp_bin_cm", "mean", "ci95", "n"]].copy()
+    inc = bin_df[bin_df["sign_group"] == "increase"][["amp_bin_cm", "mean", "ci95", "n"]].copy()
+    dec = bin_df[bin_df["sign_group"] == "decrease"][["amp_bin_cm", "mean", "ci95", "n"]].copy()
 
-    dec = bin_df[
-        bin_df["sign_group"] == "decrease"
-    ][["amp_bin_cm", "mean", "ci95", "n"]].copy()
-
-    inc = inc.rename(
-        columns={
-            "mean": "mean_inc",
-            "ci95": "ci95_inc",
-            "n": "n_inc"
-        }
-    )
-
-    dec = dec.rename(
-        columns={
-            "mean": "mean_dec",
-            "ci95": "ci95_dec",
-            "n": "n_dec"
-        }
-    )
+    inc = inc.rename(columns={"mean": "mean_inc", "ci95": "ci95_inc", "n": "n_inc"})
+    dec = dec.rename(columns={"mean": "mean_dec", "ci95": "ci95_dec", "n": "n_dec"})
 
     rr = pd.merge(inc, dec, on="amp_bin_cm", how="outer")
 
@@ -664,7 +397,6 @@ def calc_observed_ratio_curve(bin_df):
     )
 
     rr = rr.sort_values("amp_bin_cm").reset_index(drop=True)
-
     return rr
 
 
@@ -675,7 +407,6 @@ def sample_scatter(df_group, max_points=25000, seed=42):
 
     for sign in ["increase", "decrease"]:
         dd = df_group[df_group["sign_group"] == sign].copy()
-
         dd = dd.dropna(subset=["amp_cm", "delta_ts"])
         dd = dd[(dd["amp_cm"] >= 0) & (dd["amp_cm"] <= 60)].copy()
 
@@ -692,9 +423,8 @@ def get_coef_value(coef_df, group_name, variable, field):
     if coef_df is None or len(coef_df) == 0:
         return np.nan
 
-    needed_cols = ["group_name", "variable", field]
-
-    for c in needed_cols:
+    need_cols = ["group_name", "variable", field]
+    for c in need_cols:
         if c not in coef_df.columns:
             return np.nan
 
@@ -710,33 +440,10 @@ def get_coef_value(coef_df, group_name, variable, field):
 
 
 def calc_rho_snow_model(coef_df, group_name):
-    beta_pos = get_coef_value(
-        coef_df,
-        group_name,
-        "snow_pos_lag1",
-        "coef"
-    )
-
-    beta_neg = get_coef_value(
-        coef_df,
-        group_name,
-        "snow_neg_lag1",
-        "coef"
-    )
-
-    p_pos = get_coef_value(
-        coef_df,
-        group_name,
-        "snow_pos_lag1",
-        "pvalue"
-    )
-
-    p_neg = get_coef_value(
-        coef_df,
-        group_name,
-        "snow_neg_lag1",
-        "pvalue"
-    )
+    beta_pos = get_coef_value(coef_df, group_name, "snow_pos_lag1", "coef")
+    beta_neg = get_coef_value(coef_df, group_name, "snow_neg_lag1", "coef")
+    p_pos = get_coef_value(coef_df, group_name, "snow_pos_lag1", "pvalue")
+    p_neg = get_coef_value(coef_df, group_name, "snow_neg_lag1", "pvalue")
 
     if np.isfinite(beta_pos) and np.isfinite(beta_neg) and abs(beta_pos) > 1e-12:
         rho = abs(beta_neg) / abs(beta_pos)
@@ -753,8 +460,38 @@ def calc_rho_snow_model(coef_df, group_name):
     }
 
 
+def calc_overall_rho_snow_model(coef_df):
+    """尽量从已有系数表中提取 overall 的 rho_snow，不重新计算模型。"""
+    if coef_df is None or len(coef_df) == 0 or "group_name" not in coef_df.columns:
+        return {
+            "group_name": "overall",
+            "beta_pos": np.nan,
+            "beta_neg": np.nan,
+            "p_pos": np.nan,
+            "p_neg": np.nan,
+            "rho_snow": np.nan
+        }
+
+    group_candidates = ["overall", "global_overall", "global", "all", "pooled"]
+    group_series = coef_df["group_name"].astype(str).str.strip().str.lower()
+
+    for candidate in group_candidates:
+        if group_series.eq(candidate).any():
+            matched_name = coef_df.loc[group_series.eq(candidate), "group_name"].iloc[0]
+            return calc_rho_snow_model(coef_df, matched_name)
+
+    return {
+        "group_name": "overall",
+        "beta_pos": np.nan,
+        "beta_neg": np.nan,
+        "p_pos": np.nan,
+        "p_neg": np.nan,
+        "rho_snow": np.nan
+    }
+
+
 # =========================================================
-# 8) Plot style functions
+# 4) 绘图样式
 # =========================================================
 def set_axes_style(ax, tick_size=14, spine_width=1.2):
     for spine in ax.spines.values():
@@ -768,28 +505,23 @@ def set_axes_style(ax, tick_size=14, spine_width=1.2):
     )
 
     for lbl in ax.get_xticklabels():
-        lbl.set_fontweight("bold")
-        lbl.set_fontfamily("Times New Roman")
+        lbl.set_fontfamily("Arial")
 
     for lbl in ax.get_yticklabels():
-        lbl.set_fontweight("bold")
-        lbl.set_fontfamily("Times New Roman")
+        lbl.set_fontfamily("Arial")
 
 
-def set_legend_bold(leg):
+def set_legend_font(leg):
     if leg is None:
         return
-
     for txt in leg.get_texts():
-        txt.set_fontweight("bold")
-        txt.set_fontfamily("Times New Roman")
+        txt.set_fontfamily("Arial")
 
 
-def add_star_text(ax, x, y, star, above=True, tier=0):
+def add_star_text(ax, x, y, star, above=True, tier=0, group_name=None):
     """
-    Add significance stars with adjusted x/y offsets.
-    This version reduces clipping at the first snow-depth bin
-    and avoids overlap between the first and second bins.
+    tier is used to vertically stagger multiple significance stars at the same snow-depth bin.
+    Wetland uses a larger tier spacing to avoid overlap between the first and second ***.
     """
     if (not SHOW_STARS) or star is None or star == "" or (not np.isfinite(y)):
         return
@@ -797,14 +529,24 @@ def add_star_text(ax, x, y, star, above=True, tier=0):
     y0, y1 = ax.get_ylim()
     yr = y1 - y0
 
-    offset = (STAR_Y_BASE_OFFSET + STAR_Y_TIER_OFFSET * tier) * yr
-
-    if np.isclose(x, 1.0):
-        x_text = x + STAR_X_SHIFT_FIRST
-    elif np.isclose(x, 5.0):
-        x_text = x + STAR_X_SHIFT_SECOND
+    if group_name == "wetland":
+        offset = (0.050 + 0.110 * tier) * yr
     else:
-        x_text = x
+        offset = (0.040 + 0.060 * tier) * yr
+
+    x_offsets = {
+        1: 1.5,
+        5: -0.35,
+        10: 0.35,
+        15: -0.35,
+        20: 0.35,
+        25: -0.25,
+        30: 0.25,
+        40: -0.2,
+        50: 0.2,
+        60: 0.0
+    }
+    x_text = x + x_offsets.get(int(round(x)), 0.0)
 
     yy = y + offset if above else y - offset
 
@@ -821,18 +563,13 @@ def add_star_text(ax, x, y, star, above=True, tier=0):
         va=va,
         fontsize=STAR_SIZE,
         color=COLOR_STAR,
-        fontweight="bold",
-        fontfamily="Times New Roman",
-        zorder=10,
+        fontfamily="Arial",
+        zorder=100,
         clip_on=False
     )
 
 
-def add_stars_without_overlap(ax, bin_df):
-    """
-    Add significance stars and reduce overlap across adjacent bins.
-    This is especially useful for the 1 cm and 5 cm bins.
-    """
+def add_stars_without_overlap(ax, bin_df, group_name=None):
     if not SHOW_STARS:
         return
 
@@ -842,13 +579,6 @@ def add_stars_without_overlap(ax, bin_df):
 
     if len(star_df) == 0:
         return
-
-    star_df = star_df.sort_values(
-        ["amp_bin_cm", "sign_group", "mean"]
-    ).reset_index(drop=True)
-
-    upper_tier_near_left = 0
-    lower_tier_near_left = 0
 
     for x_val, dfx in star_df.groupby("amp_bin_cm"):
         dfx = dfx.copy().sort_values(["sign_group", "mean"]).reset_index(drop=True)
@@ -866,20 +596,12 @@ def add_stars_without_overlap(ax, bin_df):
             if (sign == "decrease") and np.isclose(x_val, 1.0):
                 above = False
 
-            if np.isclose(x_val, 1.0) or np.isclose(x_val, 5.0):
-                if above:
-                    tier = upper_tier_near_left
-                    upper_tier_near_left += 1
-                else:
-                    tier = lower_tier_near_left
-                    lower_tier_near_left += 1
+            if above:
+                tier = above_count
+                above_count += 1
             else:
-                if above:
-                    tier = above_count
-                    above_count += 1
-                else:
-                    tier = below_count
-                    below_count += 1
+                tier = below_count
+                below_count += 1
 
             add_star_text(
                 ax=ax,
@@ -887,12 +609,13 @@ def add_stars_without_overlap(ax, bin_df):
                 y=y,
                 star=star,
                 above=above,
-                tier=tier
+                tier=tier,
+                group_name=group_name
             )
 
 
 # =========================================================
-# 9) Draw combined four-ecosystem response figure
+# 5) 主响应图：4个生态系统横向排列
 # =========================================================
 def draw_four_ecosystems_response(plot_panel, out_path):
     fig, axes = plt.subplots(
@@ -907,17 +630,14 @@ def draw_four_ecosystems_response(plot_panel, out_path):
     for i, group_name in enumerate(ECO_GROUPS):
         ax = axes[i]
         group_label = GROUP_LABELS_EN[group_name]
-
         df_g = plot_panel[plot_panel["group_name"] == group_name].copy()
 
         if len(df_g) == 0:
             ax.set_title(
                 group_label,
                 fontsize=TITLE_SIZE,
-                fontweight="bold",
-                fontfamily="Times New Roman"
+                fontfamily="Arial"
             )
-
             ax.text(
                 0.5,
                 0.5,
@@ -925,20 +645,20 @@ def draw_four_ecosystems_response(plot_panel, out_path):
                 transform=ax.transAxes,
                 ha="center",
                 va="center",
-                fontsize=12,
-                fontweight="bold",
-                fontfamily="Times New Roman"
+                fontsize=16,
+                fontfamily="Arial"
             )
 
             ax.set_xlim(PLOT_XMIN, PLOT_XMAX)
             ax.set_ylim(MAIN_YMIN, MAIN_YMAX)
-            ax.set_yticks(np.arange(MAIN_YMIN, MAIN_YMAX + 0.001, 5))
+            ax.set_yticks([10, 0, -10, -20])
 
-            set_axes_style(ax, tick_size=TICK_SIZE, spine_width=MAIN_SPINE_WIDTH)
+            set_axes_style(ax, tick_size=TICK_SIZE, spine_width=SPINE_WIDTH)
+            for lbl in ax.get_yticklabels():
+                lbl.set_fontfamily("Arial")
 
             if i > 0:
                 ax.tick_params(axis="y", left=False, labelleft=False)
-
             continue
 
         scatter_df = sample_scatter(
@@ -955,6 +675,7 @@ def draw_four_ecosystems_response(plot_panel, out_path):
         sc_inc = scatter_df[scatter_df["sign_group"] == "increase"]
         sc_dec = scatter_df[scatter_df["sign_group"] == "decrease"]
 
+        # 原始散点
         ax.scatter(
             sc_inc["amp_cm"],
             sc_inc["delta_ts"],
@@ -975,14 +696,12 @@ def draw_four_ecosystems_response(plot_panel, out_path):
             zorder=1
         )
 
+        # 分箱均值曲线 + 95% CI
         for sign, color in [
             ("increase", COLOR_INC),
             ("decrease", COLOR_DEC)
         ]:
-            dd = bin_df[
-                bin_df["sign_group"] == sign
-            ].copy().sort_values("amp_bin_cm")
-
+            dd = bin_df[bin_df["sign_group"] == sign].copy().sort_values("amp_bin_cm")
             x = dd["amp_bin_cm"].values
             y = dd["mean"].values
             e = dd["ci95"].values
@@ -994,13 +713,14 @@ def draw_four_ecosystems_response(plot_panel, out_path):
                 linewidth=2.2,
                 marker="o",
                 markersize=4.8,
+                markeredgecolor=(0.75, 0.75, 0.75),
+                markeredgewidth=0.5,
                 zorder=5
             )
 
             if np.isfinite(e).any():
                 y_low = y - np.where(np.isfinite(e), e, 0)
                 y_high = y + np.where(np.isfinite(e), e, 0)
-
                 ax.fill_between(
                     x,
                     y_low,
@@ -1013,33 +733,34 @@ def draw_four_ecosystems_response(plot_panel, out_path):
         ax.axhline(
             0,
             linestyle="--",
-            linewidth=0.8,
+            linewidth=1.0,
             color="#777777",
             zorder=2
         )
 
         ax.set_xlim(PLOT_XMIN, PLOT_XMAX)
         ax.set_ylim(MAIN_YMIN, MAIN_YMAX)
-        ax.set_xticks([0, 10, 20, 30, 40, 50, 60])
-        ax.set_yticks(np.arange(MAIN_YMIN, MAIN_YMAX + 0.001, 5))
+        ax.set_xticks([0, 20, 40, 60])
+        ax.set_yticks([10, 0, -10, -20])
 
         ax.set_title(
             group_label,
             fontsize=TITLE_SIZE,
-            fontweight="bold",
-            fontfamily="Times New Roman",
+            fontfamily="Arial",
             pad=8
         )
 
-        set_axes_style(ax, tick_size=TICK_SIZE, spine_width=MAIN_SPINE_WIDTH)
+        set_axes_style(ax, tick_size=TICK_SIZE, spine_width=SPINE_WIDTH)
+        for lbl in ax.get_yticklabels():
+            lbl.set_fontfamily("Arial")
 
-        add_stars_without_overlap(ax, bin_df)
+        # 组合图不显示显著性星号
+        # add_stars_without_overlap(ax, bin_df, group_name=group_name)
 
         if i > 0:
             ax.tick_params(axis="y", left=False, labelleft=False)
 
         leg = ax.get_legend()
-
         if leg is not None:
             leg.remove()
 
@@ -1050,20 +771,18 @@ def draw_four_ecosystems_response(plot_panel, out_path):
         ha="center",
         va="center",
         fontsize=LABEL_SIZE,
-        fontweight="bold",
-        fontfamily="Times New Roman"
+        fontfamily="Arial"
     )
 
     fig.text(
         0.032,
         0.52,
-        "Soil temperature (°C)",
+        "Soil temperature (℃)",
         ha="center",
         va="center",
         rotation="vertical",
         fontsize=LABEL_SIZE,
-        fontweight="bold",
-        fontfamily="Times New Roman"
+        fontfamily="Arial"
     )
 
     fig.subplots_adjust(
@@ -1080,11 +799,24 @@ def draw_four_ecosystems_response(plot_panel, out_path):
         facecolor="white",
         format="tif"
     )
-
     plt.close(fig)
+
+    # ---------------------------------------------------------
+    # 直接用完整 plot_panel 计算 overall 分箱结果，并加入 all_bin_df。
+    # 这样 Figure 2b 可直接从 all_bin_df 中筛选 overall，
+    # 不再依赖任何外部 binned_observed_response_by_ecosystem.csv。
+    # ---------------------------------------------------------
+    if len(plot_panel) > 0:
+        overall_bin_df = calc_binned_stats(plot_panel)
+        overall_bin_df["group_name"] = "overall"
+        overall_bin_df["group_label"] = "Global overall"
+        all_bin_rows.append(overall_bin_df)
 
     if len(all_bin_rows) > 0:
         all_bin_df = pd.concat(all_bin_rows, axis=0, ignore_index=True)
+        all_bin_df = all_bin_df.sort_values(
+            ["group_name", "sign_group", "amp_bin_cm"]
+        ).reset_index(drop=True)
     else:
         all_bin_df = pd.DataFrame()
 
@@ -1092,15 +824,15 @@ def draw_four_ecosystems_response(plot_panel, out_path):
 
 
 # =========================================================
-# 10) Draw separate ratio figures
+# 6) 单独 ratio 小图：4个生态系统分别输出
 # =========================================================
 def draw_single_ratio_figure(ratio_df, rho_info, group_name, out_path):
     group_label = GROUP_LABELS_EN[group_name]
 
     fig, ax = plt.subplots(figsize=(RATIO_FIG_W, RATIO_FIG_H))
-
     rr = ratio_df.copy()
 
+    # 比值结果曲线：保持灰黑色
     ax.plot(
         rr["amp_bin_cm"],
         rr["ratio_obs"],
@@ -1108,7 +840,7 @@ def draw_single_ratio_figure(ratio_df, rho_info, group_name, out_path):
         linewidth=2.2,
         marker="o",
         markersize=5.2,
-        label=r"$|Effect_{reduction}| / |Effect_{addition}|$",
+        label=r"$|Effect_{Decreased}| / |Effect_{Increased}|$",
         zorder=5
     )
 
@@ -1121,63 +853,56 @@ def draw_single_ratio_figure(ratio_df, rho_info, group_name, out_path):
         zorder=2
     )
 
+    # 不绘制 rho_snow 蓝色水平线，也不将其加入左上角图例。
+    # 仅生成文字，并在后面单独放到右上角。
     if np.isfinite(rho_info["rho_snow"]):
-        ax.axhline(
-            rho_info["rho_snow"],
-            linestyle="-.",
-            linewidth=1.5,
-            color=COLOR_RHO,
-            label=rf"$\rho_{{snow}}$ = {rho_info['rho_snow']:.2f}",
-            zorder=3
-        )
+        rho_text = rf"$\rho_{{snow}}$ = {rho_info['rho_snow']:.2f}"
+    else:
+        rho_text = r"$\rho_{snow}$ = NA"
 
     ax.set_xlim(PLOT_XMIN, PLOT_XMAX)
-    ax.set_xticks(AMP_CM)
-    ax.set_xticklabels([str(v) for v in AMP_CM])
+    ax.set_xticks([0, 20, 40, 60])
+    ax.set_xticklabels(["0", "20", "40", "60"])
 
     ratio_valid = rr["ratio_obs"].values
     ratio_valid = ratio_valid[np.isfinite(ratio_valid)]
+    values = ratio_valid.tolist()
 
-    if len(ratio_valid) > 0:
-        ymax = max(2.5, float(np.nanmax(ratio_valid)) * 1.35)
-
-        if np.isfinite(rho_info["rho_snow"]):
-            ymax = max(ymax, rho_info["rho_snow"] * 1.25)
-
-        ymax = min(ymax, 12.0)
+    if len(values) > 0:
+        # 在曲线最大值上方至少保留一个完整整数刻度，
+        # 为左上角图例和右上角 rho_snow 文字预留空间，避免重叠。
+        data_max = float(np.nanmax(values))
+        ymax = max(1, int(np.ceil(data_max)) + 1)
         ax.set_ylim(0, ymax)
+        ax.set_yticks(np.arange(0, ymax + 1, 1))
+        ax.set_yticklabels([str(i) for i in range(0, ymax + 1)])
     else:
-        ax.set_ylim(0, 2.5)
+        ax.set_ylim(0, 1)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["0", "1"])
 
     ax.set_title(
         group_label,
         fontsize=RATIO_TITLE_SIZE,
-        fontweight="bold",
-        fontfamily="Times New Roman",
+        fontfamily="Arial",
         pad=8
     )
 
     ax.set_xlabel(
         "Snow depth (cm)",
         fontsize=RATIO_LABEL_SIZE,
-        fontweight="bold",
-        fontfamily="Times New Roman",
+        fontfamily="Arial",
         labelpad=8
     )
 
     ax.set_ylabel(
         "Asymmetry ratio",
         fontsize=RATIO_LABEL_SIZE,
-        fontweight="bold",
-        fontfamily="Times New Roman",
+        fontfamily="Arial",
         labelpad=8
     )
 
-    set_axes_style(
-        ax,
-        tick_size=RATIO_TICK_SIZE,
-        spine_width=RATIO_SPINE_WIDTH
-    )
+    set_axes_style(ax, tick_size=RATIO_TICK_SIZE, spine_width=SPINE_WIDTH)
 
     if SHOW_RATIO_LEGEND:
         leg = ax.legend(
@@ -1185,10 +910,21 @@ def draw_single_ratio_figure(ratio_df, rho_info, group_name, out_path):
             fontsize=RATIO_LEGEND_SIZE,
             frameon=False,
             handlelength=1.8,
-            labelspacing=0.6
+            handletextpad=0.6,
+            labelspacing=1.5
         )
+        set_legend_font(leg)
 
-        set_legend_bold(leg)
+    ax.text(
+        0.985,
+        0.98,
+        rho_text,
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        fontsize=RATIO_LEGEND_SIZE,
+        fontfamily="Arial"
+    )
 
     fig.subplots_adjust(
         left=0.16,
@@ -1203,7 +939,6 @@ def draw_single_ratio_figure(ratio_df, rho_info, group_name, out_path):
         facecolor="white",
         format="tif"
     )
-
     plt.close(fig)
 
 
@@ -1214,12 +949,10 @@ def draw_all_ratio_figures(plot_panel, coef_df):
     for group_name in ECO_GROUPS:
         group_label = GROUP_LABELS_EN[group_name]
 
-        df_g = plot_panel[
-            plot_panel["group_name"] == group_name
-        ].copy()
+        df_g = plot_panel[plot_panel["group_name"] == group_name].copy()
 
         if len(df_g) == 0:
-            print(f"[SKIP RATIO] {group_label}: no rows")
+            print(f"[SKIP] {group_label}: no rows for ratio figure")
             continue
 
         bin_df = calc_binned_stats(df_g)
@@ -1253,11 +986,7 @@ def draw_all_ratio_figures(plot_panel, coef_df):
         )
 
     if len(all_ratio_rows) > 0:
-        all_ratio_df = pd.concat(
-            all_ratio_rows,
-            axis=0,
-            ignore_index=True
-        )
+        all_ratio_df = pd.concat(all_ratio_rows, axis=0, ignore_index=True)
     else:
         all_ratio_df = pd.DataFrame()
 
@@ -1270,69 +999,248 @@ def draw_all_ratio_figures(plot_panel, coef_df):
 
 
 # =========================================================
-# 11) Main workflow
+# 7) Figure 2b：直接从 all_bin_df 中提取 overall 并绘图
 # =========================================================
-def main():
-    print("=" * 90)
-    print("Fixed-effects asymmetric soil temperature response analysis")
-    print("=" * 90)
+def extract_overall_binned_from_all_bin_df(all_bin_df):
+    """从 draw_four_ecosystems_response() 返回的 all_bin_df 中提取 overall。"""
+    required_cols = {
+        "group_name",
+        "sign_group",
+        "amp_bin_cm",
+        "mean",
+        "ci95",
+        "n"
+    }
 
-    panel = load_panel()
-    plot_panel = prepare_panel_for_analysis(panel)
+    missing = sorted(required_cols.difference(all_bin_df.columns))
+    if missing:
+        raise RuntimeError(
+            f"all_bin_df 缺少必要字段：{missing}。"
+        )
 
-    print(f"[INFO] Valid rows for analysis: {len(plot_panel):,}")
-    print(f"[INFO] Control variables used in the model: {CONTROL_VARS}")
-    print(f"[INFO] Fixed effects used in the model: {FIXED_EFFECTS}")
+    overall_bin_df = all_bin_df[
+        all_bin_df["group_name"].astype(str).str.lower().eq("overall")
+    ].copy()
 
-    if RECOMPUTE_MODEL:
-        coef_df = recompute_model_coefficients(plot_panel)
-    else:
-        if not os.path.exists(COEF_OUT_CSV):
-            raise FileNotFoundError(
-                f"RECOMPUTE_MODEL=False, but the coefficient file was not found:\n{COEF_OUT_CSV}"
-            )
+    if len(overall_bin_df) == 0:
+        raise RuntimeError(
+            "all_bin_df 中未找到 group_name == 'overall' 的结果。"
+        )
 
-        coef_df = pd.read_csv(COEF_OUT_CSV, encoding="utf-8-sig")
+    overall_bin_df = overall_bin_df.sort_values(
+        ["sign_group", "amp_bin_cm"]
+    ).reset_index(drop=True)
 
-    main_out = os.path.join(
-        PLOT_OUT_DIR,
-        "four_ecosystems_soil_temperature_response.tif"
+    return overall_bin_df
+
+
+def draw_global_overall_ratio_figure(ratio_df, rho_info, out_path):
+    fig, ax = plt.subplots(figsize=(OVERALL_RATIO_FIG_W, OVERALL_RATIO_FIG_H))
+    rr = ratio_df.copy().sort_values("amp_bin_cm")
+
+    ax.plot(
+        rr["amp_bin_cm"],
+        rr["ratio_obs"],
+        color=COLOR_RATIO_LINE,
+        linewidth=2.2,
+        marker="o",
+        markersize=5.6,
+        label=r"$|Effect_{Decreased}| / |Effect_{Increased}|$",
+        zorder=5
     )
 
-    print(f"[DRAW MAIN] Four-ecosystem response figure -> {main_out}")
+    ax.axhline(
+        1.0,
+        linestyle="--",
+        linewidth=1.2,
+        color="#888888",
+        label="ratio = 1",
+        zorder=2
+    )
+
+    # 不绘制 rho_snow 蓝色水平线，也不将其加入左上角图例。
+    # 仅生成文字，并在后面单独放到右上角。
+    if np.isfinite(rho_info["rho_snow"]):
+        rho_text = rf"$\rho_{{snow}}$ = {rho_info['rho_snow']:.2f}"
+    else:
+        rho_text = r"$\rho_{snow}$ = NA"
+
+    ax.set_xlim(PLOT_XMIN, PLOT_XMAX)
+    ax.set_xticks([0, 20, 40, 60])
+    ax.set_xticklabels(["0", "20", "40", "60"])
+
+    ratio_valid = rr["ratio_obs"].values
+    ratio_valid = ratio_valid[np.isfinite(ratio_valid)]
+    values = ratio_valid.tolist()
+
+    if len(values) > 0:
+        # 在曲线最大值上方至少保留一个完整整数刻度，
+        # 为左上角图例和右上角 rho_snow 文字预留空间，避免重叠。
+        data_max = float(np.nanmax(values))
+        ymax = max(1, int(np.ceil(data_max)) + 1)
+        ax.set_ylim(0, ymax)
+        ax.set_yticks(np.arange(0, ymax + 1, 1))
+        ax.set_yticklabels([str(i) for i in range(0, ymax + 1)])
+    else:
+        ax.set_ylim(0, 1)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["0", "1"])
+
+    ax.set_title(
+        "Global overall",
+        fontsize=RATIO_TITLE_SIZE,
+        fontfamily="Arial",
+        pad=8
+    )
+
+    ax.set_xlabel(
+        "Snow depth (cm)",
+        fontsize=RATIO_LABEL_SIZE,
+        fontfamily="Arial",
+        labelpad=8
+    )
+
+    ax.set_ylabel(
+        "Asymmetry ratio",
+        fontsize=RATIO_LABEL_SIZE,
+        fontfamily="Arial",
+        labelpad=8
+    )
+
+    set_axes_style(ax, tick_size=RATIO_TICK_SIZE, spine_width=SPINE_WIDTH)
+
+    leg = ax.legend(
+        loc="upper left",
+        fontsize=RATIO_LEGEND_SIZE,
+        frameon=False,
+        handlelength=1.8,
+        handletextpad=0.6,
+        labelspacing=1.5
+    )
+    set_legend_font(leg)
+
+    ax.text(
+        0.045,
+        0.82,
+        rho_text,
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=RATIO_LEGEND_SIZE,
+        fontfamily="Arial"
+    )
+
+    fig.subplots_adjust(
+        left=0.20,
+        right=0.96,
+        bottom=0.11,
+        top=0.93
+    )
+
+    fig.savefig(
+        out_path,
+        dpi=DPI,
+        facecolor="white",
+        format="tif"
+    )
+    plt.close(fig)
+
+
+
+# =========================================================
+# 8) 主程序
+# =========================================================
+def main():
+    panel, coef_df = load_panel_and_coef()
+    plot_panel = prepare_plot_panel(panel)
+
+    print("=" * 90)
+    print("开始绘图：overall 直接从 all_bin_df 中提取，不读取外部分箱文件")
+    print("=" * 90)
+
+    # 1) 四生态系统主图
+    main_out = os.path.join(PLOT_OUT_DIR, "four_ecosystems_soil_temperature_response.tif")
+    print(f"[DRAW MAIN] Four ecosystems response -> {main_out}")
 
     all_bin_df = draw_four_ecosystems_response(
         plot_panel=plot_panel,
         out_path=main_out
     )
 
+    # 2) 四张单独 ratio 图
     all_ratio_df, rho_df = draw_all_ratio_figures(
         plot_panel=plot_panel,
         coef_df=coef_df
     )
 
+    # 3) Figure 2b：直接从 all_bin_df 中提取 overall 并绘图
+    overall_bin_df = extract_overall_binned_from_all_bin_df(all_bin_df)
+    overall_ratio_df = calc_observed_ratio_curve(overall_bin_df)
+    overall_rho_info = calc_overall_rho_snow_model(coef_df)
+
+    overall_out = os.path.join(PLOT_OUT_DIR, "global_overall_asymmetry_ratio.tif")
+    print(f"[DRAW OVERALL] Global overall asymmetry ratio -> {overall_out}")
+
+    draw_global_overall_ratio_figure(
+        ratio_df=overall_ratio_df,
+        rho_info=overall_rho_info,
+        out_path=overall_out
+    )
+
+    # 4) 保存统计表
     if len(all_bin_df) > 0:
-        out_csv = os.path.join(PLOT_OUT_DIR, "binned_response_4ecosystems.csv")
-        all_bin_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-        print(f"[SAVE] {out_csv}")
+        # 四类生态系统结果：保持原输出文件名不变
+        four_ecosystem_bin_df = all_bin_df[
+            all_bin_df["group_name"].isin(ECO_GROUPS)
+        ].copy()
+
+        four_ecosystem_bin_df.to_csv(
+            os.path.join(PLOT_OUT_DIR, "binned_response_4ecosystems.csv"),
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+        # overall 结果明确保存，数据来源就是 all_bin_df
+        overall_bin_df.to_csv(
+            os.path.join(PLOT_OUT_DIR, "overall_binned_response_from_all_bin_df.csv"),
+            index=False,
+            encoding="utf-8-sig"
+        )
 
     if len(all_ratio_df) > 0:
-        out_csv = os.path.join(PLOT_OUT_DIR, "ratio_response_4ecosystems.csv")
-        all_ratio_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-        print(f"[SAVE] {out_csv}")
+        all_ratio_df.to_csv(
+            os.path.join(PLOT_OUT_DIR, "ratio_response_4ecosystems.csv"),
+            index=False,
+            encoding="utf-8-sig"
+        )
 
     if len(rho_df) > 0:
-        out_csv = os.path.join(PLOT_OUT_DIR, "rho_snow_4ecosystems.csv")
-        rho_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-        print(f"[SAVE] {out_csv}")
+        rho_df.to_csv(
+            os.path.join(PLOT_OUT_DIR, "rho_snow_4ecosystems.csv"),
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+    if len(overall_ratio_df) > 0:
+        overall_ratio_df.to_csv(
+            os.path.join(PLOT_OUT_DIR, "overall_ratio_from_all_bin_df.csv"),
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+    pd.DataFrame([overall_rho_info]).to_csv(
+        os.path.join(PLOT_OUT_DIR, "overall_rho_snow_from_coef.csv"),
+        index=False,
+        encoding="utf-8-sig"
+    )
 
     print("=" * 90)
-    print("All tasks completed")
+    print("绘图完成")
     print("=" * 90)
-    print(f"Output directory: {PLOT_OUT_DIR}")
-    print("Main output files:")
-    print(" - model_coefficients_by_ecosystem_recomputed.csv")
+    print(f"输出目录：{PLOT_OUT_DIR}")
+    print("输出文件：")
     print(" - four_ecosystems_soil_temperature_response.tif")
+    print(" - global_overall_asymmetry_ratio.tif")
     print(" - forest_ratio_response.tif")
     print(" - wetland_ratio_response.tif")
     print(" - grassland_ratio_response.tif")
@@ -1340,6 +1248,9 @@ def main():
     print(" - binned_response_4ecosystems.csv")
     print(" - ratio_response_4ecosystems.csv")
     print(" - rho_snow_4ecosystems.csv")
+    print(" - overall_binned_response_from_all_bin_df.csv")
+    print(" - overall_ratio_from_all_bin_df.csv")
+    print(" - overall_rho_snow_from_coef.csv")
 
 
 if __name__ == "__main__":

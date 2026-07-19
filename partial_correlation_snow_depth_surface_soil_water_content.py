@@ -1,34 +1,33 @@
 # -*- coding: utf-8 -*-
 """
+Integrated full English script:
 Partial correlation analysis between snow depth and surface soil water content
-(pixel-wise, no-ssr-covariate version, final complete version)
-------------------------------------------------------------
-This version applies the following changes to the original main analysis workflow:
+(pixel-wise workflow, including calculation, raster/table/scatter outputs,
+and the final publication-style large-scale pixel correlation map).
 
-1. Model changes
-1. The covariate ssr is removed.
-2. All paths are updated to drive I.
-3. The output directory is changed to a no_ssr version to avoid overwriting previous results.
+Main features
+-------------
+1. Performs the original pixel-wise partial-correlation analysis.
+2. Saves raster outputs, tables, scatter-plot outputs, and diagnostic outputs.
+3. Generates the final publication-style large-scale pixel correlation map.
+4. All comments, labels, and newly modified sections are provided in English.
 
-2. Partial regression scatter plot changes
-1. Frame width is restored to a regular line width, without thickening.
-2. Axis-label fonts are substantially increased.
-3. Outliers in surface soil water content (swvl1, the y-axis variable) are removed.
-4. r, p, and n are placed in the lower-left corner.
-5. The figure aspect ratio is set to 4:3.
-6. All text in the figures is bold.
-7. Scatter-point color is RGB(145,171,210).
-
-3. Pixel-map changes
-1. Frame width is restored to a regular line width, without thickening.
-2. All text in the figures is bold.
-3. The original output logic is retained: r map / r map with significant points / p map / n_eff map / r-p-n triptych.
+Key map-plot updates
+--------------------
+- Remove background grid lines.
+- Remove longitude/latitude coordinates, labels, and tick marks.
+- Use Arial for the correlation legend.
+- Use the requested diverging color scheme:
+    negative correlation: RGB(32, 56, 136)
+    positive correlation: RGB(225, 156, 102)
+- Use the real world-boundary shapefile path:
+    I:\\<world_map_folder>\\<world_map_folder>\\global_all_country.shp
 
 Notes
-- The main statistical workflow is unchanged.
-- Outlier removal in scatter plots is applied only to surface soil water content (swvl1, y) using the IQR method.
-- r/p/n statistics in scatter plots are recalculated after outlier removal.
-- The analysis domain is restricted to pixels with snow-month frequency >= 0.30, where a snow month is defined as snowc > 0.
+-----
+- This script preserves the original full analytical workflow as much as possible.
+- The large-scale publication map is generated from the existing / newly created
+  partial-correlation raster result.
 """
 
 import os
@@ -49,10 +48,15 @@ import rasterio
 from rasterio.windows import Window
 from rasterio.enums import Resampling
 from rasterio.vrt import WarpedVRT
+from rasterio.transform import Affine
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.font_manager import FontProperties
+
+import geopandas as gpd
 
 from scipy import stats
 from scipy.spatial.distance import cdist
@@ -63,15 +67,16 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 # =========================================================
 # 1. Basic parameters
 # =========================================================
-OUT_ROOT = r"I:\ERA_TIFF\partial_correlation_snow_depth_surface_soil_water_content_snowfreq_ge_0p30_no_ssr_outputs"
+OUT_ROOT = r"I:\ERA_TIFF\!partial_corr_swvl1_core1_outputs_v1_scatter"
 OUT_RASTER = os.path.join(OUT_ROOT, "01_rasters")
 OUT_FIG = os.path.join(OUT_ROOT, "02_figures")
 OUT_TABLE = os.path.join(OUT_ROOT, "03_tables")
 OUT_TEXT = os.path.join(OUT_ROOT, "04_texts")
 OUT_SCATTER_FIG = os.path.join(OUT_ROOT, "05_scatter_figures")
 OUT_SCATTER_TABLE = os.path.join(OUT_ROOT, "06_scatter_tables")
+OUT_PUB_MAP = os.path.join(OUT_ROOT, "07_publication_maps")
 
-for d in [OUT_ROOT, OUT_RASTER, OUT_FIG, OUT_TABLE, OUT_TEXT, OUT_SCATTER_FIG, OUT_SCATTER_TABLE]:
+for d in [OUT_ROOT, OUT_RASTER, OUT_FIG, OUT_TABLE, OUT_TEXT, OUT_SCATTER_FIG, OUT_SCATTER_TABLE, OUT_PUB_MAP]:
     os.makedirs(d, exist_ok=True)
 
 RUN_LOG = os.path.join(OUT_ROOT, "run_log.txt")
@@ -90,9 +95,8 @@ X_VAR = "sde"
 TARGET_DISPLAY_NAME = "surface soil water content"
 X_DISPLAY_NAME = "snow depth"
 ANALYSIS_TITLE = "Partial correlation analysis between snow depth and surface soil water content"
-OUTPUT_PREFIX = "snow_depth_surface_soil_water_content"
+OUTPUT_PREFIX = "swvl1"
 
-# ssr has been removed
 COVARS = [
     "t2m",
     "snowc",
@@ -108,8 +112,8 @@ COMPRESS = "LZW"
 ALPHA = 0.05
 
 REMOVE_MONTHLY_CLIM = True
-# Snow-domain definition: retain only pixels with snow-month frequency >= 0.30.
-# A snow month is defined as snowc > 0.
+
+# Domain definition: retain only pixels with snow-month frequency >= 0.30
 SNOWC_MIN_FRACTION = 0.30
 SNOWC_THRESHOLD = 0.0
 
@@ -126,7 +130,8 @@ P_VMIN, P_VMAX = 0.0, 0.05
 CHECK_ALL_FILES = True
 CHECK_ALIGNMENT = True
 
-# Number of displayed scatter points: only plotting is sampled, while statistics use all samples
+# Number of displayed scatter points: only plotting is sampled,
+# whereas statistics use all samples
 PLOT_POINTS_PER_BLOCK_PER_GROUP = 1200
 MAX_PLOT_POINTS_PER_GROUP = 30000
 SCATTER_RANDOM_STATE = 42
@@ -134,15 +139,14 @@ SCATTER_RANDOM_STATE = 42
 # =========================================================
 # 2. Plotting style parameters
 # =========================================================
-plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["font.weight"] = "bold"
-plt.rcParams["axes.labelweight"] = "bold"
-plt.rcParams["axes.titleweight"] = "bold"
+plt.rcParams["font.family"] = "Arial"
 plt.rcParams["axes.unicode_minus"] = False
+
+ARIAL_FONT = FontProperties(family="Arial")
 
 # Scatter plot style
 SCATTER_FIGSIZE = (10, 7.5)   # 4:3
-SCATTER_SPINE_WIDTH = 1.0     # regular line width, not thickened
+SCATTER_SPINE_WIDTH = 1.0
 SCATTER_LABEL_SIZE = 26
 SCATTER_TICK_SIZE = 20
 SCATTER_TITLE_SIZE = 20
@@ -152,12 +156,29 @@ SCATTER_FACE = (145/255, 171/255, 210/255)
 SCATTER_EDGE = (145/255, 171/255, 210/255)
 REG_LINE = (175/255, 175/255, 175/255)
 
-# Pixel-map style
+# Standard pixel-map style
 MAP_FIGSIZE = (10, 6)
-MAP_SPINE_WIDTH = 1.0         # regular line width, not thickened
+MAP_SPINE_WIDTH = 1.0
 MAP_TITLE_SIZE = 15
 MAP_CBAR_LABEL_SIZE = 12
 MAP_CBAR_TICK_SIZE = 10
+
+# Publication-style world map
+FIG_DPI = 600
+PUB_BG_RGB = (243 / 255, 243 / 255, 243 / 255)
+PUB_EDGE_RGB = (175 / 255, 175 / 255, 175 / 255)
+
+# Requested endpoint colors for the final correlation map
+NEGATIVE_RGB = (32 / 255, 56 / 255, 136 / 255)
+ZERO_RGB = (1.0, 1.0, 1.0)
+POSITIVE_RGB = (225 / 255, 156 / 255, 102 / 255)
+
+CORR_CMAP = LinearSegmentedColormap.from_list(
+    "custom_partial_correlation",
+    [NEGATIVE_RGB, ZERO_RGB, POSITIVE_RGB],
+    N=256
+)
+CORR_CMAP.set_bad((1.0, 1.0, 1.0, 0.0))
 
 # =========================================================
 # 3. Path configuration
@@ -204,6 +225,9 @@ SPECIAL_MONTHLY_VARS = {
     }
 }
 
+# World boundary shapefile for the final large-scale publication map
+WORLD_SHP = "I:\\\u4e16\u754c\u5730\u56fe\\\u4e16\u754c\u5730\u56fe\\global_all_country.shp"
+
 # =========================================================
 # 4. Template global variables
 # =========================================================
@@ -217,6 +241,11 @@ def log_msg(msg):
     print(msg)
     with open(RUN_LOG, "a", encoding="utf-8") as f:
         f.write(str(msg) + "\n")
+
+
+def ensure_file_exists(path, label="file"):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"{label} does not exist: {path}")
 
 
 def ensure_file_saved(path, label="file"):
@@ -735,7 +764,7 @@ def make_integrated_conclusion(overall_stats, stratified_df):
 
 
 # =========================================================
-# 9. Figure and raster outputs (regular frame width)
+# 9. Raster outputs and standard map plots
 # =========================================================
 def save_raster(out_tif, arr, profile, nodata=NODATA_OUT, dtype="float32"):
     profile_out = profile.copy()
@@ -753,14 +782,12 @@ def save_raster(out_tif, arr, profile, nodata=NODATA_OUT, dtype="float32"):
 
 
 def _style_colorbar(cb, label_text):
-    cb.set_label(label_text, fontsize=MAP_CBAR_LABEL_SIZE, fontweight="bold")
+    cb.set_label(label_text, fontsize=MAP_CBAR_LABEL_SIZE)
     cb.ax.tick_params(labelsize=MAP_CBAR_TICK_SIZE, width=1.0)
-    for t in cb.ax.get_xticklabels() + cb.ax.get_yticklabels():
-        t.set_fontweight("bold")
 
 
 def _style_pixel_map_axes(ax, title):
-    ax.set_title(title, fontsize=MAP_TITLE_SIZE, fontweight="bold")
+    ax.set_title(title, fontsize=MAP_TITLE_SIZE)
     ax.set_xticks([])
     ax.set_yticks([])
     for side in ["left", "right", "top", "bottom"]:
@@ -896,7 +923,7 @@ def save_rpn_triptych(out_png, r_arr, p_arr, n_arr, main_title):
     _style_colorbar(cbar3, "n_eff")
     _style_pixel_map_axes(axes[2], "Effective sample size")
 
-    fig.suptitle(main_title, fontsize=18, fontweight="bold")
+    fig.suptitle(main_title, fontsize=18)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(out_png, dpi=300, bbox_inches="tight")
     plt.close()
@@ -904,7 +931,206 @@ def save_rpn_triptych(out_png, r_arr, p_arr, n_arr, main_title):
 
 
 # =========================================================
-# 10. Stratified analysis within the snow-domain pixels (snow-month frequency >= 0.30)
+# 10. Final publication-style large-scale correlation map
+# =========================================================
+def wrap_longitude_if_needed(arr, transform):
+    """
+    Convert a 0–360° raster arrangement to -180–180° when necessary.
+    This preserves raster values and only reorders columns for display.
+    """
+    height, width = arr.shape
+    right = transform.c + transform.a * width
+
+    if right > 180:
+        split_col = width // 2
+        arr_fixed = np.hstack([arr[:, split_col:], arr[:, :split_col]])
+
+        shift = transform.a * split_col
+        new_transform = Affine(
+            transform.a,
+            transform.b,
+            transform.c - shift,
+            transform.d,
+            transform.e,
+            transform.f
+        )
+        return arr_fixed, new_transform
+
+    return arr.copy(), transform
+
+
+def save_lonfixed_raster(arr, profile, transform, out_tif):
+    out_profile = profile.copy()
+    out_profile.update(
+        transform=transform,
+        dtype="float32",
+        nodata=NODATA_OUT,
+        count=1,
+        compress="LZW"
+    )
+
+    save_arr = np.where(
+        np.isfinite(arr),
+        arr.astype(np.float32),
+        NODATA_OUT
+    ).astype(np.float32)
+
+    with rasterio.open(out_tif, "w", **out_profile) as dst:
+        dst.write(save_arr, 1)
+
+    ensure_file_saved(out_tif, "Longitude-adjusted GeoTIFF")
+
+
+def save_publication_world_map(r_arr, profile, transform, crs, out_tif, out_png):
+    """
+    Draw the final publication-style large-scale pixel map
+    with the required world background and horizontal correlation colorbar.
+    """
+    ensure_file_exists(WORLD_SHP, "World boundary shapefile")
+
+    world = gpd.read_file(WORLD_SHP)
+
+    if world.crs is None:
+        raise ValueError(f"The world shapefile has no CRS information: {WORLD_SHP}")
+    if crs is None:
+        raise ValueError("The raster CRS is missing.")
+
+    if world.crs != crs:
+        world = world.to_crs(crs)
+
+    height, width = r_arr.shape
+
+    left = transform.c
+    right = transform.c + transform.a * width
+    top = transform.f
+    bottom = transform.f + transform.e * height
+
+    fig = plt.figure(figsize=(16, 9), facecolor="white")
+    ax = fig.add_axes([0.055, 0.12, 0.89, 0.78])
+    ax.set_facecolor("white")
+
+    # Global land background
+    world.plot(
+        ax=ax,
+        facecolor=PUB_BG_RGB,
+        edgecolor=PUB_EDGE_RGB,
+        linewidth=0.5,
+        zorder=1
+    )
+
+    # Partial-correlation raster
+    masked_r = np.ma.masked_invalid(r_arr)
+    image = ax.imshow(
+        masked_r,
+        extent=[left, right, bottom, top],
+        origin="upper",
+        cmap=CORR_CMAP,
+        vmin=R_VMIN,
+        vmax=R_VMAX,
+        interpolation="none",
+        zorder=2
+    )
+
+    # Country boundaries
+    world.boundary.plot(
+        ax=ax,
+        color=PUB_EDGE_RGB,
+        linewidth=0.5,
+        zorder=3
+    )
+
+    ax.set_xlim(-180, 180)
+    ax.set_ylim(-60, 85)
+
+    # Remove background grid lines and all coordinates/ticks
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.tick_params(
+        axis="both",
+        which="both",
+        bottom=False,
+        top=False,
+        left=False,
+        right=False,
+        labelbottom=False,
+        labeltop=False,
+        labelleft=False,
+        labelright=False
+    )
+
+    # Keep a regular black outer frame
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(0.8)
+        spine.set_color("black")
+
+    ax.set_title("")
+
+    # Horizontal correlation colorbar
+    cax = ax.inset_axes([0.39, 0.045, 0.22, 0.028])
+    colorbar = plt.colorbar(
+        image,
+        cax=cax,
+        orientation="horizontal",
+        extend="both"
+    )
+    colorbar.set_ticks([-1, -0.5, 0, 0.5, 1])
+
+    colorbar.ax.set_title(
+        "Partial correlation coefficient (r)",
+        fontsize=12,
+        pad=6,
+        fontproperties=ARIAL_FONT
+    )
+    colorbar.ax.tick_params(
+        labelsize=11,
+        direction="out",
+        length=3,
+        width=0.8,
+        pad=2
+    )
+    for tick_label in colorbar.ax.get_xticklabels():
+        tick_label.set_fontproperties(ARIAL_FONT)
+
+    # Save TIFF
+    try:
+        fig.savefig(
+            out_tif,
+            dpi=FIG_DPI,
+            format="tif",
+            bbox_inches="tight",
+            facecolor=fig.get_facecolor(),
+            pil_kwargs={"compression": "tiff_lzw"}
+        )
+    except TypeError:
+        fig.savefig(
+            out_tif,
+            dpi=FIG_DPI,
+            format="tif",
+            bbox_inches="tight",
+            facecolor=fig.get_facecolor()
+        )
+
+    # Save PNG
+    fig.savefig(
+        out_png,
+        dpi=FIG_DPI,
+        format="png",
+        bbox_inches="tight",
+        facecolor=fig.get_facecolor()
+    )
+
+    plt.close(fig)
+
+    ensure_file_saved(out_tif, "Publication map TIFF")
+    ensure_file_saved(out_png, "Publication map PNG")
+
+
+# =========================================================
+# 11. Stratified analysis within the snow-domain pixels
 # =========================================================
 def stratified_analysis_by_snow_freq(snow_freq_map, r_map, p_map, n_eff_map, width, height, profile):
     layers = {
@@ -988,7 +1214,7 @@ def stratified_analysis_by_snow_freq(snow_freq_map, r_map, p_map, n_eff_map, wid
 
 
 # =========================================================
-# 11. Main raster-calculation worker
+# 12. Main raster-calculation worker
 # =========================================================
 def process_one_block(args):
     row_start, row_end, width = args
@@ -1045,7 +1271,7 @@ def process_one_block(args):
 
 
 # =========================================================
-# 12. Scatter plot statistics and outputs (regular frame width)
+# 13. Scatter plot statistics and outputs
 # =========================================================
 def init_scatter_acc(title, out_png, out_csv):
     return {
@@ -1065,7 +1291,7 @@ def init_scatter_acc(title, out_png, out_csv):
 
 def remove_soil_water_content_outliers_iqr(x, y, k=1.5):
     """
-    Remove outliers only based on soil water content (y)
+    Remove outliers only based on surface soil water content (y).
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
@@ -1101,7 +1327,6 @@ def update_scatter_acc(acc, x_vals, y_vals, rng):
     if x.size == 0:
         return
 
-    # Remove surface soil water content (y) outliers
     x, y = remove_soil_water_content_outliers_iqr(x, y, k=1.5)
     if x.size == 0:
         return
@@ -1208,7 +1433,6 @@ def save_partial_scatter_png(out_png, sx, sy, r, p, n, slope, intercept, title):
     sx = sx[valid]
     sy = sy[valid]
 
-    # Safety check: remove surface soil water content outliers once more before plotting
     sx, sy = remove_soil_water_content_outliers_iqr(sx, sy, k=1.5)
 
     fig, ax = plt.subplots(figsize=SCATTER_FIGSIZE, facecolor="white")
@@ -1239,13 +1463,12 @@ def save_partial_scatter_png(out_png, sx, sy, r, p, n, slope, intercept, title):
         transform=ax.transAxes,
         ha="left", va="bottom",
         fontsize=SCATTER_TEXT_SIZE,
-        fontweight="bold",
         bbox=dict(boxstyle="round", facecolor="white", edgecolor="black", alpha=0.92)
     )
 
-    ax.set_xlabel(f"Residualized {X_DISPLAY_NAME}", fontsize=SCATTER_LABEL_SIZE, fontweight="bold")
-    ax.set_ylabel(f"Residualized {TARGET_DISPLAY_NAME}", fontsize=SCATTER_LABEL_SIZE, fontweight="bold")
-    ax.set_title(title, fontsize=SCATTER_TITLE_SIZE, fontweight="bold")
+    ax.set_xlabel(f"Residualized {X_DISPLAY_NAME}", fontsize=SCATTER_LABEL_SIZE)
+    ax.set_ylabel(f"Residualized {TARGET_DISPLAY_NAME}", fontsize=SCATTER_LABEL_SIZE)
+    ax.set_title(title, fontsize=SCATTER_TITLE_SIZE)
 
     for side in ["left", "right", "top", "bottom"]:
         ax.spines[side].set_visible(True)
@@ -1260,9 +1483,6 @@ def save_partial_scatter_png(out_png, sx, sy, r, p, n, slope, intercept, title):
         width=1.0,
         labelsize=SCATTER_TICK_SIZE
     )
-
-    for tick in ax.get_xticklabels() + ax.get_yticklabels():
-        tick.set_fontweight("bold")
 
     ax.grid(False)
 
@@ -1433,7 +1653,7 @@ def generate_scatter_outputs(template, r_map, p_map, snow_freq_map):
 
 
 # =========================================================
-# 13. Main program
+# 14. Main program
 # =========================================================
 def main():
     log_msg(f"========== {ANALYSIS_TITLE} (ssr covariate removed) ==========")
@@ -1538,7 +1758,7 @@ def main():
     save_df_csv(df_overall, out_overall_csv)
     log_msg("Full-domain summary table has been saved.")
 
-    # 3) Three snow-zone classes: figures + tables
+    # 3) Stratified figures + tables
     stratified_results = stratified_analysis_by_snow_freq(
         snow_freq_map, r_map, p_map, eff_n_map, width, height, profile
     )
@@ -1546,12 +1766,12 @@ def main():
     df_stratified = pd.DataFrame(list(stratified_results.values()))
     out_stratified_csv = os.path.join(OUT_TABLE, f"{OUTPUT_PREFIX}_stratified_snowfreq_ge_0p30_summary.csv")
     save_df_csv(df_stratified, out_stratified_csv)
-    log_msg("Figures and statistical tables for the three snow-zone classes have been saved.")
+    log_msg("Figures and statistical tables for the snow-zone classes have been saved.")
 
-    # 4) Seven scatter plots
+    # 4) Scatter plots
     generate_scatter_outputs(template, r_map, p_map, snow_freq_map)
 
-    # 5) Integrated summary table + integrated conclusion text
+    # 5) Integrated summary table + integrated conclusion
     df_integrated = pd.concat(
         [df_overall.assign(region="overall"), df_stratified],
         ignore_index=True,
@@ -1605,15 +1825,49 @@ def main():
     except Exception as e:
         err_txt = os.path.join(OUT_TEXT, "diagnostic_error.txt")
         save_txt(str(e), err_txt)
-        log_msg(f"An error occurred during diagnostics, but main figures and statistical tables have been generated. See error information at: {err_txt}")
+        log_msg(f"An error occurred during diagnostics, but the main figures and statistical tables have been generated. See error information at: {err_txt}")
+
+    # 7) Final publication-style large-scale pixel map
+    try:
+        log_msg("Starting the final publication-style large-scale pixel map...")
+
+        r_map_pub, transform_pub = wrap_longitude_if_needed(r_map, template["transform"])
+
+        out_lonfix_tif = os.path.join(OUT_PUB_MAP, f"{OUTPUT_PREFIX}_partial_corr_r_lonfix.tif")
+        out_pub_tif = os.path.join(OUT_PUB_MAP, f"{OUTPUT_PREFIX}_partial_corr_world_map_pub.tif")
+        out_pub_png = os.path.join(OUT_PUB_MAP, f"{OUTPUT_PREFIX}_partial_corr_world_map_pub.png")
+
+        save_lonfixed_raster(
+            r_map_pub,
+            profile,
+            transform_pub,
+            out_lonfix_tif
+        )
+
+        save_publication_world_map(
+            r_arr=r_map_pub,
+            profile=profile,
+            transform=transform_pub,
+            crs=template["crs"],
+            out_tif=out_pub_tif,
+            out_png=out_pub_png
+        )
+
+        log_msg("The final publication-style large-scale pixel map has been saved.")
+
+    except Exception as e:
+        pub_err_txt = os.path.join(OUT_TEXT, "publication_map_error.txt")
+        save_txt(str(e), pub_err_txt)
+        log_msg(f"An error occurred while generating the publication-style map. See: {pub_err_txt}")
 
     log_msg("=" * 60)
     log_msg(f"Result root directory: {OUT_ROOT}")
     log_msg(f"Raster outputs: {OUT_RASTER}")
     log_msg(f"Figures: {OUT_FIG}")
-    log_msg(f"Statistical tables: {OUT_TABLE}")
-    log_msg(f"Scatter plots: {OUT_SCATTER_FIG}")
-    log_msg(f"Scatter statistical tables: {OUT_SCATTER_TABLE}")
+    log_msg(f"Tables: {OUT_TABLE}")
+    log_msg(f"Scatter figures: {OUT_SCATTER_FIG}")
+    log_msg(f"Scatter tables: {OUT_SCATTER_TABLE}")
+    log_msg(f"Publication maps: {OUT_PUB_MAP}")
     log_msg("=" * 60)
 
 
